@@ -6,6 +6,7 @@ export const listProductsQuery = z.object({
   category: z.string().optional(),
   location: z.string().optional(),
   q: z.string().optional(),
+  shop: z.string().uuid().optional(),
 });
 
 export const productIdParam = z.object({

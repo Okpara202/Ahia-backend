@@ -21,6 +21,10 @@ import discoverRoutes from "./modules/discover/discover.routes.js";
 import storiesRoutes from "./modules/stories/stories.routes.js";
 import referralsRoutes from "./modules/referrals/referrals.routes.js";
 import webhooksRoutes from "./modules/webhooks/webhooks.routes.js";
+import usersRoutes from "./modules/users/users.routes.js";
+import paymentsRoutes from "./modules/payments/payments.routes.js";
+import searchRoutes from "./modules/search/search.routes.js";
+import { productsController } from "./modules/products/products.controller.js";
 
 export function createApp() {
   const app = express();
@@ -58,6 +62,10 @@ export function createApp() {
   app.use("/disputes", disputesRoutes);
   app.use("/boosts", boostsRoutes);
   app.use("/discover", discoverRoutes);
+  app.use("/users", usersRoutes);
+  app.use("/payments", paymentsRoutes);
+  app.get("/feed", productsController.list);
+  app.use(searchRoutes);
   app.use(reviewsRoutes);
   app.use(storiesRoutes);
   app.use(referralsRoutes);

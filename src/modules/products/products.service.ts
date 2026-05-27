@@ -54,6 +54,7 @@ export const productsService = {
   async list(query: ListProductsQuery) {
     const where: Prisma.ProductWhereInput = {};
     if (query.category) where.category = query.category;
+    if (query.shop) where.shopId = query.shop;
     if (query.location) where.shop = { location: query.location };
     if (query.q) {
       where.OR = [

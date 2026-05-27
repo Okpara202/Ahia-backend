@@ -129,7 +129,12 @@ export const conversationsService = {
       imageCaption: caption,
     });
     await conversationsRepo.touchUpdatedAt(conversationId);
-    broadcastToOthers(participantIds(convo), userId, "message:new", {
+    const otherIds = participantIds(convo);
+    broadcastToOthers(otherIds, userId, "message:new", {
+      conversationId,
+      message,
+    });
+    broadcastToOthers(otherIds, userId, "image:new", {
       conversationId,
       message,
     });
