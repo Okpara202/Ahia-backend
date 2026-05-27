@@ -1,0 +1,354 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum UserRole {
+  buyer
+  seller
+  admin
+}
+
+enum MessageType {
+  text
+  payment_request
+  system
+  offer
+  image
+}
+
+enum OfferStatus {
+  pending
+  accepted
+  declined
+}
+
+enum TransactionStatus {
+  held
+  released
+  disputed
+  refunded
+  cancelled
+}
+
+enum DisputeStatus {
+  open
+  resolved_buyer
+  resolved_seller
+  cancelled
+}
+
+enum BoostPlan {
+  monthly
+  quarterly
+  biannual
+}
+
+enum ReferralStatus {
+  pending
+  completed
+  expired
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  email        String   @unique
+  passwordHash String?  @map("password_hash")
+  role         UserRole @default(buyer)
+  avatarUrl    String?  @map("avatar_url")
+  googleId     String?  @unique @map("google_id")
+  appleId      String?  @unique @map("apple_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  shop                Shop?
+  conversations       ConversationParticipant[]
+  messages            Message[]
+  transactionsAsBuyer Transaction[]             @relation("buyer")
+  reviewsAuthored     Review[]
+  notifications       Notification[]
+  wishlist            WishlistItem[]
+  referralsMade       Referral[]                @relation("referrer")
+  referralsReceived   Referral[]                @relation("invitee")
+
+  @@map("users")
+}
+
+model Shop {
+  id            String   @id @default(uuid()) @db.Uuid
+  ownerId       String   @unique @map("owner_id") @db.Uuid
+  name          String
+  handle        String   @unique
+  bio           String?
+  avatarUrl     String?  @map("avatar_url")
+  bannerUrl     String?  @map("banner_url")
+  location      String?
+  showLegalName Boolean  @default(false) @map("show_legal_name")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  owner         User           @relation(fields: [ownerId], references: [id])
+  products      Product[]
+  stories       Story[]
+  reviews       Review[]
+  discoverPosts DiscoverPost[]
+
+  @@map("shops")
+}
+
+model Product {
+  id          String    @id @default(uuid()) @db.Uuid
+  shopId      String    @map("shop_id") @db.Uuid
+  name        String
+  description String
+  price       Decimal   @db.Decimal(12, 2)
+  category    String
+  cover       String
+  gallery     String[]
+  sponsored   Boolean   @default(false)
+  hidden      Boolean   @default(false)
+  deletedAt   DateTime? @map("deleted_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  shop         Shop           @relation(fields: [shopId], references: [id])
+  reviews      Review[]
+  boosts       Boost[]
+  transactions Transaction[]
+  wishlistedBy WishlistItem[]
+
+  @@index([category])
+  @@index([shopId])
+  @@map("products")
+}
+
+model Conversation {
+  id        String   @id @default(uuid()) @db.Uuid
+  productId String?  @map("product_id") @db.Uuid
+  shopId    String?  @map("shop_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  participants ConversationParticipant[]
+  messages     Message[]
+
+  @@map("conversations")
+}
+
+model ConversationParticipant {
+  conversationId String   @map("conversation_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  joinedAt       DateTime @default(now()) @map("joined_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@id([conversationId, userId])
+  @@map("conversation_participants")
+}
+
+model Message {
+  id             String       @id @default(uuid()) @db.Uuid
+  conversationId String       @map("conversation_id") @db.Uuid
+  senderId       String?      @map("sender_id") @db.Uuid
+  type           MessageType
+  body           String?
+  offerAmount    Decimal?     @map("offer_amount") @db.Decimal(12, 2)
+  offerStatus    OfferStatus? @map("offer_status")
+  offerNote      String?      @map("offer_note")
+  imageUrl       String?      @map("image_url")
+  imageCaption   String?      @map("image_caption")
+  paymentTxnId   String?      @map("payment_txn_id") @db.Uuid
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+  sender       User?        @relation(fields: [senderId], references: [id])
+
+  @@index([conversationId])
+  @@map("messages")
+}
+
+model Transaction {
+  id          String            @id @default(uuid()) @db.Uuid
+  buyerId     String            @map("buyer_id") @db.Uuid
+  productId   String            @map("product_id") @db.Uuid
+  amount      Decimal           @db.Decimal(12, 2)
+  status      TransactionStatus @default(held)
+  paystackRef String?           @unique @map("paystack_ref")
+  heldAt      DateTime?         @map("held_at")
+  releasedAt  DateTime?         @map("released_at")
+  deliveredAt DateTime?         @map("delivered_at")
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+
+  buyer   User     @relation("buyer", fields: [buyerId], references: [id])
+  product Product  @relation(fields: [productId], references: [id])
+  dispute Dispute?
+  review  Review?
+
+  @@map("transactions")
+}
+
+model Dispute {
+  id            String        @id @default(uuid()) @db.Uuid
+  transactionId String        @unique @map("transaction_id") @db.Uuid
+  raisedById    String        @map("raised_by_id") @db.Uuid
+  reason        String
+  status        DisputeStatus @default(open)
+  resolution    String?
+  createdAt     DateTime      @default(now()) @map("created_at")
+  resolvedAt    DateTime?     @map("resolved_at")
+
+  transaction Transaction @relation(fields: [transactionId], references: [id])
+
+  @@map("disputes")
+}
+
+model Notification {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  type      String
+  payload   Json
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, readAt])
+  @@map("notifications")
+}
+
+model DiscoverPost {
+  id          String   @id @default(uuid()) @db.Uuid
+  shopId      String   @map("shop_id") @db.Uuid
+  videoUrl    String   @map("video_url")
+  posterUrl   String?  @map("poster_url")
+  caption     String?
+  ctaType     String   @map("cta_type")
+  ctaTargetId String   @map("cta_target_id") @db.Uuid
+  impressions Int      @default(0)
+  clicks      Int      @default(0)
+  saves       Int      @default(0)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  shop      Shop               @relation(fields: [shopId], references: [id])
+  campaigns DiscoverCampaign[]
+
+  @@index([shopId])
+  @@map("discover_posts")
+}
+
+model DiscoverCampaign {
+  id          String    @id @default(uuid()) @db.Uuid
+  postId      String    @map("post_id") @db.Uuid
+  plan        BoostPlan
+  spend       Decimal   @db.Decimal(12, 2)
+  startsAt    DateTime  @map("starts_at")
+  endsAt      DateTime  @map("ends_at")
+  paystackRef String?   @unique @map("paystack_ref")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  post  DiscoverPost        @relation(fields: [postId], references: [id])
+  daily DiscoverDailyStat[]
+
+  @@index([postId, endsAt])
+  @@map("discover_campaigns")
+}
+
+model DiscoverDailyStat {
+  id          String   @id @default(uuid()) @db.Uuid
+  campaignId  String   @map("campaign_id") @db.Uuid
+  date        DateTime @db.Date
+  impressions Int      @default(0)
+  clicks      Int      @default(0)
+  spend       Decimal  @default(0) @db.Decimal(12, 2)
+
+  campaign DiscoverCampaign @relation(fields: [campaignId], references: [id])
+
+  @@unique([campaignId, date])
+  @@map("discover_daily_stats")
+}
+
+model Boost {
+  id          String    @id @default(uuid()) @db.Uuid
+  productId   String    @map("product_id") @db.Uuid
+  plan        BoostPlan
+  spend       Decimal   @db.Decimal(12, 2)
+  startsAt    DateTime  @map("starts_at")
+  endsAt      DateTime  @map("ends_at")
+  paystackRef String?   @unique @map("paystack_ref")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([productId, endsAt])
+  @@map("boosts")
+}
+
+model Story {
+  id         String   @id @default(uuid()) @db.Uuid
+  shopId     String   @map("shop_id") @db.Uuid
+  mediaUrl   String   @map("media_url")
+  durationMs Int      @default(5000) @map("duration_ms")
+  expiresAt  DateTime @map("expires_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  shop Shop @relation(fields: [shopId], references: [id])
+
+  @@index([shopId, expiresAt])
+  @@map("stories")
+}
+
+model Review {
+  id            String   @id @default(uuid()) @db.Uuid
+  productId     String   @map("product_id") @db.Uuid
+  shopId        String   @map("shop_id") @db.Uuid
+  transactionId String   @unique @map("transaction_id") @db.Uuid
+  authorId      String   @map("author_id") @db.Uuid
+  rating        Int
+  body          String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  product     Product     @relation(fields: [productId], references: [id])
+  shop        Shop        @relation(fields: [shopId], references: [id])
+  transaction Transaction @relation(fields: [transactionId], references: [id])
+  author      User        @relation(fields: [authorId], references: [id])
+
+  @@map("reviews")
+}
+
+model Referral {
+  id          String         @id @default(uuid()) @db.Uuid
+  referrerId  String         @map("referrer_id") @db.Uuid
+  inviteeId   String?        @map("invitee_id") @db.Uuid
+  code        String
+  status      ReferralStatus @default(pending)
+  rewardNaira Int            @default(500) @map("reward_naira")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  completedAt DateTime?      @map("completed_at")
+
+  referrer User  @relation("referrer", fields: [referrerId], references: [id])
+  invitee  User? @relation("invitee", fields: [inviteeId], references: [id])
+
+  @@unique([referrerId, inviteeId])
+  @@index([inviteeId, status])
+  @@map("referrals")
+}
+
+model WishlistItem {
+  userId    String   @map("user_id") @db.Uuid
+  productId String   @map("product_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user    User    @relation(fields: [userId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+
+  @@id([userId, productId])
+  @@map("wishlist_items")
+}
