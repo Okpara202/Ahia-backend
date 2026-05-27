@@ -4,7 +4,34 @@ import { z } from "zod";
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(4000),
-  CLIENT_URL: z.string().url(),
+  CLIENT_URL: z
+    .string()
+    .min(1)
+    .transform((v, ctx) => {
+      const urls = v
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (urls.length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "At least one URL required",
+        });
+        return z.NEVER;
+      }
+      for (const u of urls) {
+        try {
+          new URL(u);
+        } catch {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `Invalid URL: ${u}`,
+          });
+          return z.NEVER;
+        }
+      }
+      return urls;
+    }),
 
   DATABASE_URL: z.string().url(),
   DIRECT_URL: z.string().url().optional(),

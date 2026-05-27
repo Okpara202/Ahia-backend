@@ -21,6 +21,6 @@ export const referralsController = {
   async redirect(req: Request, res: Response) {
     const { code } = codeParam.parse(req.params);
     const safeCode = encodeURIComponent(code.toLowerCase());
-    res.redirect(302, `${env.CLIENT_URL}/signup?ref=${safeCode}`);
+    res.redirect(302, `${env.CLIENT_URL[0]}/signup?ref=${safeCode}`);
   },
 };

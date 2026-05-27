@@ -55,7 +55,7 @@ router.get("/callback", async (req: Request, res: Response) => {
   const errorParam = typeof req.query.error === "string" ? req.query.error : null;
   if (errorParam) {
     logger.warn("google oauth: user denied or error", { error: errorParam });
-    res.redirect(`${env.CLIENT_URL}/login?error=oauth_denied`);
+    res.redirect(`${env.CLIENT_URL[0]}/login?error=oauth_denied`);
     return;
   }
 
@@ -105,7 +105,7 @@ router.get("/callback", async (req: Request, res: Response) => {
   authService.issueSession(user, res);
 
   const target = isNew ? "/onboarding" : statePayload.next;
-  res.redirect(`${env.CLIENT_URL}${target}`);
+  res.redirect(`${env.CLIENT_URL[0]}${target}`);
 });
 
 export default router;
