@@ -38,7 +38,7 @@ const schema = z.object({
   REDIS_URL: z.string().url().optional(),
 
   JWT_SECRET: z.string().min(32),
-  COOKIE_DOMAIN: z.string().default("localhost"),
+  COOKIE_DOMAIN: z.string().optional(),
 
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),

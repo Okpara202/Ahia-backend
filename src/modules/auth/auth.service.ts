@@ -1,7 +1,8 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-import type { Response } from "express";
+import type { Response, CookieOptions } from "express";
 import { env } from "../../config/env.js";
+import { logger } from "../../config/logger.js";
 import { ConflictError, UnauthorizedError } from "../../errors.js";
 import { authRepo } from "./auth.repo.js";
 import type { LoginInput, SignupInput } from "./auth.schemas.js";
@@ -16,12 +17,20 @@ function signSession(user: Pick<User, "id" | "role">): string {
   });
 }
 
-function cookieOptions() {
+function cookieOptions(): CookieOptions {
+  const isProd = env.NODE_ENV === "production";
+  let domain = env.COOKIE_DOMAIN;
+  if (isProd && domain === "localhost") {
+    logger.warn(
+      "cookieOptions: COOKIE_DOMAIN=localhost in production is invalid — ignoring; cookie will be scoped to request host",
+    );
+    domain = undefined;
+  }
   return {
     httpOnly: true,
-    secure: env.NODE_ENV === "production",
-    sameSite: "lax" as const,
-    domain: env.COOKIE_DOMAIN,
+    secure: isProd,
+    sameSite: isProd ? "none" : "lax",
+    ...(domain ? { domain } : {}),
     maxAge: SESSION_DAYS * 24 * 60 * 60 * 1000,
     path: "/",
   };
