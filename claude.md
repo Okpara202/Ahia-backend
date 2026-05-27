@@ -60,18 +60,25 @@ auto-release + boost expiry).
 
 **Decisions made during build:**
 - **ORM: Prisma** (over Drizzle).
-- **Hosting: not yet picked** (Render vs Railway).
+- **Hosting: Render** (Web Service + Blueprint via committed `render.yaml`). Free tier; migrations run in `buildCommand` (free-tier doesn't support `preDeployCommand`).
 - **bcrypt vs bcryptjs: kept bcrypt** — the install-time tar vuln is install-only, runtime safe.
 - **Webhook source of truth:** transaction rows are only created when Paystack confirms (not at init time). Prevents orphan rows on abandoned checkouts.
 - **Single Paystack dispatcher:** `paystack.controller.ts` routes by `metadata.type` (`escrow`/`boost`/`discover`). New monetized flows plug in with one switch case.
 - **Plans shared between Boost and Discover:** same 3 plan IDs and prices (₦5k/₦12k/₦20k). Single source of truth in `src/modules/boosts/boosts.plans.ts`.
 - **Referral code:** the user's shop handle (lowercase). Users without a shop can't refer.
 - **Stories cleanup:** query-time filter only. No background job. Acceptable since the table grows slowly.
+- **Cross-origin auth (production):** session cookie uses `SameSite=none; Secure` in production so a frontend on a different origin (including localhost dev) can authenticate against the prod backend. Dev still uses `SameSite=lax` for localhost convenience. CORS allowlist provides the practical CSRF gate.
+- **`CLIENT_URL` is comma-separated:** the env var accepts multiple origins; the first one is the canonical post-OAuth and `/r/:code` redirect target.
+- **`COOKIE_DOMAIN` is optional** (was `default("localhost")`). A defensive runtime check ignores `COOKIE_DOMAIN=localhost` in production so a misconfigured env doesn't silently break cookies.
 
 **Endpoints/contract changes from the plan:**
 - `transactions/by-reference/:reference` — added for the frontend to poll after Paystack returns. Not in §2 of the original plan.
 - `transactions/sales` — added for seller view (claude.md §8 implied something like this but didn't enumerate).
 - `PATCH /transactions/:id/release` — added so the buyer can release early (claude.md mentioned auto-release after 7 days only).
+
+**Deploy artifacts:**
+- [`render.yaml`](render.yaml) — Render Blueprint declaring the web service, build/start/migrate commands, health check path (`/health`), and 15 env vars marked `sync: false` (to be filled per environment).
+- `package.json` build script: `prisma generate && tsc -p tsconfig.json` — generates the Prisma client before compilation. Render's `buildCommand` runs `npm install && npm run build && npx prisma migrate deploy`.
 
 ---
 

@@ -8,3 +8,5 @@ dist/
 .vscode/
 .idea/
 coverage/
+
+FRONTEND_HANDOFF.md
