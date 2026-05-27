@@ -3,8 +3,7 @@ services:
     name: ahia-backend
     runtime: node
     plan: free
-    buildCommand: npm install && npm run build
-    preDeployCommand: npx prisma migrate deploy
+    buildCommand: npm install && npm run build && npx prisma migrate deploy
     startCommand: npm start
     healthCheckPath: /health
     autoDeploy: true
