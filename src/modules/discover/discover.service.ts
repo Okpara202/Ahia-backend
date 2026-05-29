@@ -58,7 +58,9 @@ export const discoverService = {
     if (!files.video) {
       throw new BadRequestError("Video file is required");
     }
-    const shop = await prisma.shop.findUnique({ where: { ownerId: userId } });
+    const shop = await prisma.shop.findFirst({
+      where: { ownerId: userId, deletedAt: null },
+    });
     if (!shop) {
       throw new ForbiddenError("You must have a shop to post to Discover");
     }

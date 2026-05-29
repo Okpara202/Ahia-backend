@@ -18,6 +18,7 @@ const router = Router();
 router.post("/", requireAuth, shopMediaFields, shopsController.createMine);
 router.get("/me", requireAuth, shopsController.getMine);
 router.patch("/me", requireAuth, shopMediaFields, shopsController.updateMine);
+router.delete("/me", requireAuth, shopsController.demolishMine);
 
 router.get("/:id", shopsController.getById);
 router.get("/:id/products", shopsController.listProducts);

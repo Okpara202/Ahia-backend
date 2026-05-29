@@ -67,7 +67,7 @@ model User {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  shop                Shop?
+  shops               Shop[]
   conversations       ConversationParticipant[]
   messages            Message[]
   transactionsAsBuyer Transaction[]             @relation("buyer")
@@ -81,18 +81,20 @@ model User {
 }
 
 model Shop {
-  id            String   @id @default(uuid()) @db.Uuid
-  ownerId       String   @unique @map("owner_id") @db.Uuid
+  id            String    @id @default(uuid()) @db.Uuid
+  ownerId       String    @map("owner_id") @db.Uuid
   name          String
-  handle        String   @unique
+  handle        String    @unique
   category      String?
   bio           String?
-  avatarUrl     String?  @map("avatar_url")
-  bannerUrl     String?  @map("banner_url")
+  avatarUrl     String?   @map("avatar_url")
+  bannerUrl     String?   @map("banner_url")
   location      String?
-  showLegalName Boolean  @default(false) @map("show_legal_name")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  showLegalName Boolean   @default(false) @map("show_legal_name")
+  isActive      Boolean   @default(true) @map("is_active")
+  deletedAt     DateTime? @map("deleted_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
 
   owner         User           @relation(fields: [ownerId], references: [id])
   products      Product[]
@@ -100,6 +102,7 @@ model Shop {
   reviews       Review[]
   discoverPosts DiscoverPost[]
 
+  @@index([ownerId])
   @@map("shops")
 }
 

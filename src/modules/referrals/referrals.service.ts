@@ -8,8 +8,8 @@ import { referralsRepo } from "./referrals.repo.js";
 
 export const referralsService = {
   async getMine(userId: string) {
-    const shop = await prisma.shop.findUnique({
-      where: { ownerId: userId },
+    const shop = await prisma.shop.findFirst({
+      where: { ownerId: userId, deletedAt: null },
       select: { handle: true },
     });
     const code = shop?.handle.toLowerCase() ?? null;

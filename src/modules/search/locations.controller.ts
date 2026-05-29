@@ -5,6 +5,8 @@ export const locationsController = {
   async list(_req: Request, res: Response) {
     const rows = await prisma.shop.findMany({
       where: {
+        isActive: true,
+        deletedAt: null,
         owner: { role: "seller" },
         location: { not: null },
       },

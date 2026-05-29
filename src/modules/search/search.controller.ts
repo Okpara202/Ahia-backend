@@ -18,6 +18,8 @@ export const searchController = {
 
     if (query.type === "shops") {
       const baseWhere = {
+        isActive: true,
+        deletedAt: null,
         owner: { role: "seller" as const },
         ...(query.location ? { location: query.location } : {}),
       };

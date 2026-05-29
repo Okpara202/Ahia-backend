@@ -51,4 +51,10 @@ export const shopsController = {
     const result = await shopsService.listProducts(id, query);
     res.status(200).json(result);
   },
+
+  async demolishMine(req: Request, res: Response) {
+    if (!req.user) throw new UnauthorizedError();
+    await shopsService.demolishMine(req.user.id);
+    res.status(204).end();
+  },
 };

@@ -1,4 +1,5 @@
-import { ConflictError, NotFoundError } from "../../errors.js";
+import { prisma } from "../../config/db.js";
+import { AppError, ConflictError, NotFoundError } from "../../errors.js";
 import { uploadImageBuffer } from "../../integrations/cloudinary.js";
 import { shopsRepo } from "./shops.repo.js";
 import type {
@@ -6,6 +7,7 @@ import type {
   ListShopProductsQuery,
   UpdateShopInput,
 } from "./shops.schemas.js";
+import type { Shop } from "@prisma/client";
 
 type ShopFiles = { avatar?: Buffer; banner?: Buffer };
 
@@ -15,6 +17,11 @@ async function uploadAvatar(userId: string, buf: Buffer) {
 
 async function uploadBanner(userId: string, buf: Buffer) {
   return uploadImageBuffer(buf, { folder: `ahia/shops/${userId}`, publicId: "banner" });
+}
+
+async function withStats(shop: Shop) {
+  const productsCount = await shopsRepo.productCount(shop.id);
+  return { ...shop, productsCount };
 }
 
 export const shopsService = {
@@ -32,7 +39,7 @@ export const shopsService = {
     const avatarUrl = files.avatar ? await uploadAvatar(userId, files.avatar) : undefined;
     const bannerUrl = files.banner ? await uploadBanner(userId, files.banner) : undefined;
 
-    return shopsRepo.create({
+    const shop = await shopsRepo.create({
       owner: { connect: { id: userId } },
       name: input.name,
       handle: input.handle,
@@ -43,18 +50,19 @@ export const shopsService = {
       avatarUrl,
       bannerUrl,
     });
+    return withStats(shop);
   },
 
   async getMine(userId: string) {
     const shop = await shopsRepo.findByOwnerId(userId);
     if (!shop) throw new NotFoundError("Shop");
-    return shop;
+    return withStats(shop);
   },
 
   async getById(id: string) {
     const shop = await shopsRepo.findById(id);
-    if (!shop) throw new NotFoundError("Shop");
-    return shop;
+    if (!shop || shop.deletedAt) throw new NotFoundError("Shop");
+    return withStats(shop);
   },
 
   async updateMine(userId: string, input: UpdateShopInput, files: ShopFiles) {
@@ -73,21 +81,43 @@ export const shopsService = {
     const avatarUrl = files.avatar ? await uploadAvatar(userId, files.avatar) : undefined;
     const bannerUrl = files.banner ? await uploadBanner(userId, files.banner) : undefined;
 
-    return shopsRepo.update(shop.id, {
+    const updated = await shopsRepo.update(shop.id, {
       name: input.name,
       handle: input.handle,
       category: input.category,
       bio: input.bio,
       location: input.location,
       showLegalName: input.showLegalName,
+      isActive: input.isActive,
       ...(avatarUrl && { avatarUrl }),
       ...(bannerUrl && { bannerUrl }),
     });
+    return withStats(updated);
+  },
+
+  async demolishMine(userId: string) {
+    const existing = await shopsRepo.findByOwnerIdAny(userId);
+    if (!existing) {
+      throw new NotFoundError("Shop");
+    }
+    if (existing.deletedAt) {
+      throw new AppError(410, "shop_gone", "Shop has already been closed.");
+    }
+    await prisma.$transaction([
+      prisma.shop.update({
+        where: { id: existing.id },
+        data: { deletedAt: new Date(), isActive: false },
+      }),
+      prisma.user.update({
+        where: { id: userId },
+        data: { role: "buyer" },
+      }),
+    ]);
   },
 
   async listProducts(shopId: string, query: ListShopProductsQuery) {
     const shop = await shopsRepo.findById(shopId);
-    if (!shop) throw new NotFoundError("Shop");
+    if (!shop || shop.deletedAt) throw new NotFoundError("Shop");
 
     const rows = await shopsRepo.listProducts({
       shopId,

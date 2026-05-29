@@ -18,7 +18,9 @@ export const createShopSchema = z.object({
   showLegalName: stringBool.optional(),
 });
 
-export const updateShopSchema = createShopSchema.partial();
+export const updateShopSchema = createShopSchema.partial().extend({
+  isActive: stringBool.optional(),
+});
 
 export const shopIdParam = z.object({
   id: z.string().uuid(),

@@ -27,8 +27,8 @@ export const storiesService = {
     if (!fileBuffer) {
       throw new ValidationError("Image is required", { image: "Required" });
     }
-    const shop = await prisma.shop.findUnique({
-      where: { ownerId: userId },
+    const shop = await prisma.shop.findFirst({
+      where: { ownerId: userId, deletedAt: null },
       select: { id: true },
     });
     if (!shop) {
