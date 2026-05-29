@@ -41,7 +41,7 @@ export const shopsController = {
 
   async getById(req: Request, res: Response) {
     const { id } = shopIdParam.parse(req.params);
-    const shop = await shopsService.getById(id);
+    const shop = await shopsService.getById(id, req.user?.id);
     res.status(200).json({ shop });
   },
 

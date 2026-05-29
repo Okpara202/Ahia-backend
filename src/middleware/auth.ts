@@ -29,6 +29,18 @@ export function requireAuth(req: Request, _res: Response, next: NextFunction) {
   }
 }
 
+export function optionalAuth(req: Request, _res: Response, next: NextFunction) {
+  const token = req.cookies?.session as string | undefined;
+  if (!token) return next();
+  try {
+    const payload = jwt.verify(token, env.JWT_SECRET) as SessionUser;
+    req.user = payload;
+  } catch {
+    // Silently ignore — guest behavior
+  }
+  next();
+}
+
 export function requireRole(...roles: SessionUser["role"][]) {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.user) throw new UnauthorizedError();

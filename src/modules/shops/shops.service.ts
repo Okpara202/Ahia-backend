@@ -1,6 +1,8 @@
 import { prisma } from "../../config/db.js";
 import { AppError, ConflictError, NotFoundError } from "../../errors.js";
 import { uploadImageBuffer } from "../../integrations/cloudinary.js";
+import { followsRepo } from "../follows/follows.repo.js";
+import { notificationsService } from "../notifications/notifications.service.js";
 import { shopsRepo } from "./shops.repo.js";
 import type {
   CreateShopInput,
@@ -11,6 +13,11 @@ import type { Shop } from "@prisma/client";
 
 type ShopFiles = { avatar?: Buffer; banner?: Buffer };
 
+type ViewContext = {
+  viewerId?: string;
+  isOwner?: boolean;
+};
+
 async function uploadAvatar(userId: string, buf: Buffer) {
   return uploadImageBuffer(buf, { folder: `ahia/shops/${userId}`, publicId: "avatar" });
 }
@@ -19,9 +26,24 @@ async function uploadBanner(userId: string, buf: Buffer) {
   return uploadImageBuffer(buf, { folder: `ahia/shops/${userId}`, publicId: "banner" });
 }
 
-async function withStats(shop: Shop) {
-  const productsCount = await shopsRepo.productCount(shop.id);
-  return { ...shop, productsCount };
+async function ownerName(shop: Shop): Promise<string | null> {
+  const owner = await prisma.user.findUnique({
+    where: { id: shop.ownerId },
+    select: { name: true },
+  });
+  return owner?.name ?? null;
+}
+
+async function withStats(shop: Shop, ctx: ViewContext = {}) {
+  const [productsCount, followerCount, isFollowing, name] = await Promise.all([
+    shopsRepo.productCount(shop.id),
+    followsRepo.count(shop.id),
+    ctx.viewerId ? followsRepo.exists(ctx.viewerId, shop.id) : Promise.resolve(null),
+    ctx.isOwner || shop.showLegalName ? ownerName(shop) : Promise.resolve(null),
+  ]);
+  const base = { ...shop, productsCount, followerCount, isFollowing };
+  if (name === null) return base;
+  return { ...base, ownerName: name };
 }
 
 export const shopsService = {
@@ -50,19 +72,22 @@ export const shopsService = {
       avatarUrl,
       bannerUrl,
     });
-    return withStats(shop);
+    return withStats(shop, { viewerId: userId, isOwner: true });
   },
 
   async getMine(userId: string) {
     const shop = await shopsRepo.findByOwnerId(userId);
     if (!shop) throw new NotFoundError("Shop");
-    return withStats(shop);
+    return withStats(shop, { viewerId: userId, isOwner: true });
   },
 
-  async getById(id: string) {
+  async getById(id: string, viewerId?: string) {
     const shop = await shopsRepo.findById(id);
     if (!shop || shop.deletedAt) throw new NotFoundError("Shop");
-    return withStats(shop);
+    return withStats(shop, {
+      viewerId,
+      isOwner: viewerId === shop.ownerId,
+    });
   },
 
   async updateMine(userId: string, input: UpdateShopInput, files: ShopFiles) {
@@ -92,7 +117,22 @@ export const shopsService = {
       ...(avatarUrl && { avatarUrl }),
       ...(bannerUrl && { bannerUrl }),
     });
-    return withStats(updated);
+
+    const reopened = shop.isActive === false && updated.isActive === true;
+    if (reopened) {
+      const followerIds = await followsRepo.followerIds(updated.id);
+      await Promise.all(
+        followerIds.map((followerId) =>
+          notificationsService.createForUser(followerId, "shop_reopened", {
+            shopId: updated.id,
+            shopName: updated.name,
+            shopHandle: updated.handle,
+          }),
+        ),
+      );
+    }
+
+    return withStats(updated, { viewerId: userId, isOwner: true });
   },
 
   async demolishMine(userId: string) {

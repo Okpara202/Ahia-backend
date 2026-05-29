@@ -1,5 +1,6 @@
 import { prisma } from "../../config/db.js";
 import {
+  AppError,
   BadRequestError,
   ForbiddenError,
   NotFoundError,
@@ -49,6 +50,36 @@ async function resolveSellerId(
   throw new BadRequestError("Conversation has no product or shop reference");
 }
 
+async function assertShopAcceptingNewBuyers(
+  productId: string | null,
+  shopId: string | null,
+) {
+  let shop: { isActive: boolean; deletedAt: Date | null } | null = null;
+  if (productId) {
+    const product = await prisma.product.findUnique({
+      where: { id: productId },
+      select: { shop: { select: { isActive: true, deletedAt: true } } },
+    });
+    shop = product?.shop ?? null;
+  } else if (shopId) {
+    shop = await prisma.shop.findUnique({
+      where: { id: shopId },
+      select: { isActive: true, deletedAt: true },
+    });
+  }
+  if (!shop) return;
+  if (shop.deletedAt) {
+    throw new AppError(403, "shop_gone", "This shop is no longer available.");
+  }
+  if (!shop.isActive) {
+    throw new AppError(
+      403,
+      "shop_paused",
+      "This seller is on a break and isn't taking new orders right now.",
+    );
+  }
+}
+
 function participantIds(convo: ConvoWithParticipants): string[] {
   return convo.participants.map((p) => p.userId);
 }
@@ -66,6 +97,11 @@ export const conversationsService = {
       userIds: [userId, sellerId],
     });
     if (existing) return existing;
+
+    await assertShopAcceptingNewBuyers(
+      input.productId ?? null,
+      input.shopId ?? null,
+    );
 
     return conversationsRepo.create({
       productId: input.productId,

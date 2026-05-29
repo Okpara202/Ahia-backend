@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { prisma } from "../../config/db.js";
 import { logger } from "../../config/logger.js";
 import {
+  AppError,
   BadRequestError,
   ForbiddenError,
   NotFoundError,
@@ -88,6 +89,28 @@ export const transactionsService = {
     if (product.hidden) throw new BadRequestError("Product is unavailable");
     if (product.shop.ownerId === userId) {
       throw new BadRequestError("You can't buy your own product");
+    }
+
+    if (product.shop.deletedAt) {
+      throw new AppError(403, "shop_gone", "This shop is no longer available.");
+    }
+    if (!product.shop.isActive) {
+      const existingConversation = await prisma.conversation.findFirst({
+        where: {
+          AND: [
+            { participants: { some: { userId } } },
+            { participants: { some: { userId: product.shop.ownerId } } },
+          ],
+        },
+        select: { id: true },
+      });
+      if (!existingConversation) {
+        throw new AppError(
+          403,
+          "shop_paused",
+          "This seller is on a break and isn't taking new orders right now.",
+        );
+      }
     }
 
     const buyer = await prisma.user.findUnique({

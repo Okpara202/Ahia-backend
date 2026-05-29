@@ -1,7 +1,8 @@
 import { Router } from "express";
 import multer from "multer";
-import { requireAuth } from "../../middleware/auth.js";
+import { optionalAuth, requireAuth } from "../../middleware/auth.js";
 import { shopsController } from "./shops.controller.js";
+import { followsController } from "../follows/follows.controller.js";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -20,7 +21,10 @@ router.get("/me", requireAuth, shopsController.getMine);
 router.patch("/me", requireAuth, shopMediaFields, shopsController.updateMine);
 router.delete("/me", requireAuth, shopsController.demolishMine);
 
-router.get("/:id", shopsController.getById);
+router.get("/:id", optionalAuth, shopsController.getById);
 router.get("/:id/products", shopsController.listProducts);
+
+router.post("/:id/follow", requireAuth, followsController.follow);
+router.delete("/:id/follow", requireAuth, followsController.unfollow);
 
 export default router;

@@ -68,6 +68,7 @@ model User {
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   shops               Shop[]
+  follows             Follow[]
   conversations       ConversationParticipant[]
   messages            Message[]
   transactionsAsBuyer Transaction[]             @relation("buyer")
@@ -101,9 +102,24 @@ model Shop {
   stories       Story[]
   reviews       Review[]
   discoverPosts DiscoverPost[]
+  followers     Follow[]
 
   @@index([ownerId])
   @@map("shops")
+}
+
+model Follow {
+  userId    String   @map("user_id") @db.Uuid
+  shopId    String   @map("shop_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@id([userId, shopId])
+  @@index([shopId])
+  @@index([userId])
+  @@map("follows")
 }
 
 model Product {

@@ -23,7 +23,7 @@ export const searchController = {
         owner: { role: "seller" as const },
         ...(query.location ? { location: query.location } : {}),
       };
-      const items = query.q
+      const rows = query.q
         ? await prisma.shop.findMany({
             where: {
               ...baseWhere,
@@ -35,12 +35,18 @@ export const searchController = {
             },
             take: query.limit,
             orderBy: { createdAt: "desc" },
+            include: { _count: { select: { followers: true } } },
           })
         : await prisma.shop.findMany({
             where: baseWhere,
             take: query.limit,
             orderBy: { createdAt: "desc" },
+            include: { _count: { select: { followers: true } } },
           });
+      const items = rows.map((row) => {
+        const { _count, ...shop } = row;
+        return { ...shop, followerCount: _count.followers };
+      });
       res.status(200).json({ items, nextCursor: null });
       return;
     }
