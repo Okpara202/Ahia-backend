@@ -85,6 +85,7 @@ model Shop {
   ownerId       String   @unique @map("owner_id") @db.Uuid
   name          String
   handle        String   @unique
+  category      String?
   bio           String?
   avatarUrl     String?  @map("avatar_url")
   bannerUrl     String?  @map("banner_url")

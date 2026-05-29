@@ -17,21 +17,25 @@ export const searchController = {
     const query = searchQuery.parse(req.query);
 
     if (query.type === "shops") {
+      const baseWhere = {
+        owner: { role: "seller" as const },
+        ...(query.location ? { location: query.location } : {}),
+      };
       const items = query.q
         ? await prisma.shop.findMany({
             where: {
+              ...baseWhere,
               OR: [
                 { name: { contains: query.q, mode: "insensitive" } },
                 { handle: { contains: query.q, mode: "insensitive" } },
                 { bio: { contains: query.q, mode: "insensitive" } },
               ],
-              ...(query.location ? { location: query.location } : {}),
             },
             take: query.limit,
             orderBy: { createdAt: "desc" },
           })
         : await prisma.shop.findMany({
-            where: query.location ? { location: query.location } : {},
+            where: baseWhere,
             take: query.limit,
             orderBy: { createdAt: "desc" },
           });

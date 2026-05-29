@@ -30,6 +30,12 @@ import { productsController } from "./modules/products/products.controller.js";
 export function createApp() {
   const app = express();
 
+  // Health check first — before any middleware — so deploy/uptime probes
+  // can't be slowed or blocked by helmet, cors, parsers, or rate limiting.
+  app.get("/health", (_req, res) => {
+    res.status(200).json({ ok: true });
+  });
+
   app.set("trust proxy", 1);
   app.use(helmet());
   app.use(
@@ -47,10 +53,6 @@ export function createApp() {
 
   app.use(express.json({ limit: "1mb" }));
   app.use(generalLimiter);
-
-  app.get("/health", (_req, res) => {
-    res.status(200).json({ ok: true });
-  });
 
   app.use("/auth", authRoutes);
   app.use("/auth/google", googleOauthRoutes);

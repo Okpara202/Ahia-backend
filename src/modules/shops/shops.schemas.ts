@@ -7,11 +7,12 @@ const stringBool = z
   .transform((v) => (typeof v === "boolean" ? v : v === "true"));
 
 export const createShopSchema = z.object({
-  name: z.string().min(2).max(80),
+  name: z.string().min(2, "Shop name is required").max(80),
   handle: z
     .string()
     .toLowerCase()
-    .regex(HANDLE_REGEX, "Lowercase letters, numbers, dot, dash, underscore (2-31 chars)"),
+    .regex(HANDLE_REGEX, "Use lowercase letters, numbers, dots, dashes."),
+  category: z.string().min(1).max(80),
   bio: z.string().max(500).optional(),
   location: z.string().max(80).optional(),
   showLegalName: stringBool.optional(),

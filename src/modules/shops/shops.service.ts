@@ -20,11 +20,11 @@ async function uploadBanner(userId: string, buf: Buffer) {
 export const shopsService = {
   async createForUser(userId: string, input: CreateShopInput, files: ShopFiles) {
     const existing = await shopsRepo.findByOwnerId(userId);
-    if (existing) throw new ConflictError("SHOP_EXISTS", "You already have a shop");
+    if (existing) throw new ConflictError("shop_exists", "You already have a shop.");
 
     const handleTaken = await shopsRepo.findByHandle(input.handle);
     if (handleTaken) {
-      throw new ConflictError("HANDLE_TAKEN", "That handle is taken", {
+      throw new ConflictError("handle_taken", "That handle is already in use.", {
         handle: "Already taken",
       });
     }
@@ -36,6 +36,7 @@ export const shopsService = {
       owner: { connect: { id: userId } },
       name: input.name,
       handle: input.handle,
+      category: input.category,
       bio: input.bio,
       location: input.location,
       showLegalName: input.showLegalName ?? false,
@@ -63,7 +64,7 @@ export const shopsService = {
     if (input.handle && input.handle !== shop.handle) {
       const taken = await shopsRepo.findByHandle(input.handle);
       if (taken) {
-        throw new ConflictError("HANDLE_TAKEN", "That handle is taken", {
+        throw new ConflictError("handle_taken", "That handle is already in use.", {
           handle: "Already taken",
         });
       }
@@ -75,6 +76,7 @@ export const shopsService = {
     return shopsRepo.update(shop.id, {
       name: input.name,
       handle: input.handle,
+      category: input.category,
       bio: input.bio,
       location: input.location,
       showLegalName: input.showLegalName,

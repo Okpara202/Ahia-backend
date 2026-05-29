@@ -15,7 +15,7 @@ const shopMediaFields = upload.fields([
 
 const router = Router();
 
-router.post("/me", requireAuth, shopMediaFields, shopsController.createMine);
+router.post("/", requireAuth, shopMediaFields, shopsController.createMine);
 router.get("/me", requireAuth, shopsController.getMine);
 router.patch("/me", requireAuth, shopMediaFields, shopsController.updateMine);
 

@@ -52,10 +52,12 @@ export const productsService = {
   },
 
   async list(query: ListProductsQuery) {
-    const where: Prisma.ProductWhereInput = {};
+    const shopFilter: Prisma.ShopWhereInput = { owner: { role: "seller" } };
+    if (query.location) shopFilter.location = query.location;
+
+    const where: Prisma.ProductWhereInput = { shop: shopFilter };
     if (query.category) where.category = query.category;
     if (query.shop) where.shopId = query.shop;
-    if (query.location) where.shop = { location: query.location };
     if (query.q) {
       where.OR = [
         { name: { contains: query.q, mode: "insensitive" } },
