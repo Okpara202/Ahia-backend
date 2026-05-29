@@ -15,7 +15,7 @@ those are the shapes the frontend already consumes.
 
 ---
 
-## 0a. Build status (last updated 2026-05-27)
+## 0a. Build status (last updated 2026-05-29)
 
 **Shipped end-to-end:**
 
@@ -57,6 +57,7 @@ auto-release + boost expiry).
 **Migrations applied to date:**
 1. `init` — all 16 base tables + enums (matches the CLAUDE.md §7 schema)
 2. `v1_paystack_refs_and_referral_constraints` — combined: `paystack_ref` unique columns on Boost + DiscoverCampaign, foreign key on DiscoverPost.shopId + index, `Referral` constraint swap (dropped `@unique` on `code`, added composite `@@unique([referrerId, inviteeId])` + `@@index([inviteeId, status])`)
+3. `add_shop_category` — added nullable `category` column on `shops` to support the frontend's shop-create form (required at the API layer via Zod, nullable in the DB so existing rows don't backfill)
 
 **Decisions made during build:**
 - **ORM: Prisma** (over Drizzle).
@@ -70,11 +71,26 @@ auto-release + boost expiry).
 - **Cross-origin auth (production):** session cookie uses `SameSite=none; Secure` in production so a frontend on a different origin (including localhost dev) can authenticate against the prod backend. Dev still uses `SameSite=lax` for localhost convenience. CORS allowlist provides the practical CSRF gate.
 - **`CLIENT_URL` is comma-separated:** the env var accepts multiple origins; the first one is the canonical post-OAuth and `/r/:code` redirect target.
 - **`COOKIE_DOMAIN` is optional** (was `default("localhost")`). A defensive runtime check ignores `COOKIE_DOMAIN=localhost` in production so a misconfigured env doesn't silently break cookies.
+- **Express 4 async-error patch:** `import "express-async-errors"` at the top of `src/app.ts`. Without it, throws inside `async` route handlers become unhandled Promise rejections — the request never resolves and the LB times it out after 30-60s. Surfaced when the frontend reported `GET /products/:id` and `GET /shops/:id` "hanging" on invalid IDs (Zod was throwing, but the error never reached the error middleware).
+- **Role-aware shop visibility:** `/feed`, `/search?type=products`, `/search?type=shops`, and `/locations` filter by `shop.owner.role === "seller"` via JOIN. Lets a user toggle to `role: "buyer"` without deleting their shop — it's just hidden from discovery surfaces. Direct lookups (`/shops/:id`, `/shops/me`, `/shops/:id/products`, `/products/:id`) stay unfiltered so in-flight conversations and transactions still resolve.
+- **Shop create endpoint path:** `POST /shops` (collection style, owner inferred from session cookie) instead of `POST /shops/me`. `GET /shops/me` and `PATCH /shops/me` still exist as personal-namespaced operations on the user's own shop.
+- **Root route returns 200:** `GET /` and `HEAD /` return `{ ok: true, service: "ahia-backend" }` so Render's internal probes don't generate 404 warn-logs on every wake.
 
 **Endpoints/contract changes from the plan:**
 - `transactions/by-reference/:reference` — added for the frontend to poll after Paystack returns. Not in §2 of the original plan.
 - `transactions/sales` — added for seller view (claude.md §8 implied something like this but didn't enumerate).
 - `PATCH /transactions/:id/release` — added so the buyer can release early (claude.md mentioned auto-release after 7 days only).
+- `GET /feed` — alias to `GET /products` (frontend wanted a top-level feed path). Same query shape (`cursor`, `limit`, `category`, `location`, `q`), same response (`{ items, nextCursor }`).
+- `GET /search?q=&type=products|shops` — new search endpoint with shops-mode. Returns `{ items, nextCursor }`.
+- `?shop=:shopId` filter on `GET /products` — alternative to `GET /shops/:id/products`. Both work.
+- `PATCH /users/profile` (`{ name?, avatarUrl? }`) and `PATCH /users/role` (`{ role: "buyer" \| "seller" }`) — new `users` module. Role flip does NOT touch the user's shop (it's hidden from discovery via the role-aware filter described above).
+- `GET /payments/verify/:reference` — single endpoint for post-Paystack return pages. Dispatches across escrow / boost / discover by ref prefix and returns `{ status: "success" \| "pending", next?, id? }`. Frontend polls this after Paystack redirects.
+- `GET /locations` — distinct list of `Shop.location` strings for shops with active seller owners. Drives the location filter chip on the feed.
+- `POST /transactions/:id/confirm` — alias for `PATCH /transactions/:id/release` (frontend convention).
+- `PATCH /notifications/read-all` — alias for `POST /notifications/read-all`.
+- `GET /transactions` — alias for `GET /transactions/me`.
+- `image:new` socket event — emitted alongside `message:new` whenever an image message is sent, for frontends that want to handle image attachments distinctly.
+- Shop now has a `category` column (added via migration `add_shop_category`). Included in `POST /shops` request body as required.
 
 **Deploy artifacts:**
 - [`render.yaml`](render.yaml) — Render Blueprint declaring the web service, build/start/migrate commands, health check path (`/health`), and 15 env vars marked `sync: false` (to be filled per environment).
