@@ -35,6 +35,12 @@ export function createApp() {
   app.get("/health", (_req, res) => {
     res.status(200).json({ ok: true });
   });
+  app.get("/", (_req, res) => {
+    res.status(200).json({ ok: true, service: "ahia-backend" });
+  });
+  app.head("/", (_req, res) => {
+    res.status(200).end();
+  });
 
   app.set("trust proxy", 1);
   app.use(helmet());
