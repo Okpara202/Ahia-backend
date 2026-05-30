@@ -1,5 +1,6 @@
 import { prisma } from "../../config/db.js";
 import {
+  AppError,
   BadRequestError,
   ConflictError,
   ForbiddenError,
@@ -32,10 +33,14 @@ export const reviewsService = {
   async create(userId: string, input: CreateReviewInput) {
     const txn = await prisma.transaction.findUnique({
       where: { id: input.transactionId },
+      include: { product: { select: { shop: { select: { ownerId: true } } } } },
     });
     if (!txn) throw new NotFoundError("Transaction");
     if (txn.buyerId !== userId) {
       throw new ForbiddenError("Only the buyer can review this transaction");
+    }
+    if (txn.product.shop.ownerId === userId) {
+      throw new AppError(400, "self_review", "You can't review your own product.");
     }
     if (txn.status !== "released") {
       throw new BadRequestError("Can only review transactions that have been released");

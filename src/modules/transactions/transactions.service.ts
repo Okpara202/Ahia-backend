@@ -88,7 +88,7 @@ export const transactionsService = {
     if (!product) throw new NotFoundError("Product");
     if (product.hidden) throw new BadRequestError("Product is unavailable");
     if (product.shop.ownerId === userId) {
-      throw new BadRequestError("You can't buy your own product");
+      throw new AppError(400, "self_transaction", "You can't buy from your own shop.");
     }
 
     if (product.shop.deletedAt) {

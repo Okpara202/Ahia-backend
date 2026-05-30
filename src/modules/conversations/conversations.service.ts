@@ -88,7 +88,7 @@ export const conversationsService = {
   async start(userId: string, input: StartConversationInput) {
     const sellerId = await resolveSellerId(input.productId ?? null, input.shopId ?? null);
     if (sellerId === userId) {
-      throw new BadRequestError("You can't start a conversation with yourself");
+      throw new AppError(400, "self_conversation", "You can't message your own shop.");
     }
 
     const existing = await conversationsRepo.findExisting({
