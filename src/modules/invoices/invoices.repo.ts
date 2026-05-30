@@ -48,11 +48,11 @@ export const invoicesRepo = {
     });
   },
 
-  setPaid(id: string, paystackRef: string, autoReleaseAt: Date) {
+  setPaid(id: string, paystackRef: string, autoReleaseAt: Date, platformFee: number) {
     return prisma.$transaction(async (tx) => {
       const updated = await tx.invoice.update({
         where: { id },
-        data: { status: "paid", paystackRef, paidAt: new Date() },
+        data: { status: "paid", paystackRef, paidAt: new Date(), platformFee },
         include: invoiceInclude,
       });
       await tx.invoiceLine.updateMany({

@@ -21,9 +21,14 @@ import type {
 
 const INVOICE_REF_PREFIX = "ahia_invoice_";
 const AUTO_RELEASE_DAYS = 7;
+const PLATFORM_FEE_RATE = 0.05;
 
 function generateReference(): string {
   return `${INVOICE_REF_PREFIX}${crypto.randomBytes(12).toString("hex")}`;
+}
+
+function computePlatformFee(totalAmount: number): number {
+  return Math.round(totalAmount * PLATFORM_FEE_RATE * 100) / 100;
 }
 
 async function expandLines(
@@ -244,7 +249,9 @@ export const invoicesService = {
     }
 
     const autoReleaseAt = new Date(Date.now() + AUTO_RELEASE_DAYS * 24 * 60 * 60 * 1000);
-    const updated = await invoicesRepo.setPaid(invoiceId, reference, autoReleaseAt);
+    const platformFee = computePlatformFee(Number(existing.totalAmount));
+
+    const updated = await invoicesRepo.setPaid(invoiceId, reference, autoReleaseAt, platformFee);
 
     await prisma.transaction.create({
       data: {
@@ -252,6 +259,7 @@ export const invoicesService = {
         buyer: { connect: { id: existing.buyerId } },
         seller: { connect: { id: existing.sellerId } },
         totalPaid: existing.totalAmount,
+        platformFee,
         paystackRef: reference,
         status: "held",
         paidAt: new Date(),
