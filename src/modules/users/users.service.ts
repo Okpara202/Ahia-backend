@@ -1,5 +1,6 @@
 import { prisma } from "../../config/db.js";
 import { NotFoundError } from "../../errors.js";
+import { uploadImageBuffer } from "../../integrations/cloudinary.js";
 import type { UpdateProfileInput, UpdateRoleInput } from "./users.schemas.js";
 
 function publicUser<T extends { passwordHash: string | null }>(user: T) {
@@ -26,6 +27,26 @@ export const usersService = {
       data: { role: input.role },
     });
     if (!user) throw new NotFoundError("User");
+    return publicUser(user);
+  },
+
+  async uploadAvatar(userId: string, fileBuffer: Buffer) {
+    const avatarUrl = await uploadImageBuffer(fileBuffer, {
+      folder: `ahia/avatars/users/${userId}`,
+      publicId: "avatar",
+    });
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: { avatarUrl },
+    });
+    return publicUser(user);
+  },
+
+  async removeAvatar(userId: string) {
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: { avatarUrl: null },
+    });
     return publicUser(user);
   },
 };

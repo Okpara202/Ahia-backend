@@ -43,8 +43,9 @@ router.post(
 
 router.post("/:id/read", conversationsController.markRead);
 
-// Invoices nested under a conversation (creation)
+// Invoices nested under a conversation (creation) — two URLs for the same handler
 router.post("/:id/invoices", invoicesController.create);
+router.post("/:id/messages/invoice", invoicesController.create);
 
 // Backward-compatible image route (frontend may still send to /:id/image during transition)
 router.post(

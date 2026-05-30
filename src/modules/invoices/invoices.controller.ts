@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { UnauthorizedError } from "../../errors.js";
+import { uploadImageBuffer } from "../../integrations/cloudinary.js";
 import { invoicesService } from "./invoices.service.js";
 import {
   conversationInvoiceParam,
@@ -9,6 +10,15 @@ import {
   lineIdParam,
   payInvoiceSchema,
 } from "./invoices.schemas.js";
+
+function getEvidenceBuffer(req: Request): Buffer | undefined {
+  const single = req.file as Express.Multer.File | undefined;
+  if (single) return single.buffer;
+  const files = req.files as
+    | { [field: string]: Express.Multer.File[] | undefined }
+    | undefined;
+  return files?.evidence_file?.[0]?.buffer;
+}
 
 export const invoicesController = {
   async create(req: Request, res: Response) {
@@ -44,8 +54,19 @@ export const invoicesController = {
   async disputeLine(req: Request, res: Response) {
     if (!req.user) throw new UnauthorizedError();
     const { lineId } = lineIdParam.parse(req.params);
-    const input = disputeLineSchema.parse(req.body);
-    const result = await invoicesService.disputeLine(req.user.id, lineId, input);
+    const buf = getEvidenceBuffer(req);
+    let evidenceUrl: string | undefined;
+    if (buf) {
+      evidenceUrl = await uploadImageBuffer(buf, {
+        folder: `ahia/disputes/${lineId}`,
+        publicId: "evidence",
+      });
+    }
+    const parsed = disputeLineSchema.parse({
+      reason: req.body?.reason,
+      evidenceUrl: evidenceUrl ?? req.body?.evidenceUrl,
+    });
+    const result = await invoicesService.disputeLine(req.user.id, lineId, parsed);
     res.status(201).json(result);
   },
 };

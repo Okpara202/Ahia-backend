@@ -135,6 +135,36 @@ export const shopsService = {
     return withStats(updated, { viewerId: userId, isOwner: true });
   },
 
+  async uploadAvatar(userId: string, buf: Buffer) {
+    const shop = await shopsRepo.findByOwnerId(userId);
+    if (!shop) throw new NotFoundError("Shop");
+    const avatarUrl = await uploadAvatar(userId, buf);
+    const updated = await shopsRepo.update(shop.id, { avatarUrl });
+    return withStats(updated, { viewerId: userId, isOwner: true });
+  },
+
+  async removeAvatar(userId: string) {
+    const shop = await shopsRepo.findByOwnerId(userId);
+    if (!shop) throw new NotFoundError("Shop");
+    const updated = await shopsRepo.update(shop.id, { avatarUrl: null });
+    return withStats(updated, { viewerId: userId, isOwner: true });
+  },
+
+  async uploadBanner(userId: string, buf: Buffer) {
+    const shop = await shopsRepo.findByOwnerId(userId);
+    if (!shop) throw new NotFoundError("Shop");
+    const bannerUrl = await uploadBanner(userId, buf);
+    const updated = await shopsRepo.update(shop.id, { bannerUrl });
+    return withStats(updated, { viewerId: userId, isOwner: true });
+  },
+
+  async removeBanner(userId: string) {
+    const shop = await shopsRepo.findByOwnerId(userId);
+    if (!shop) throw new NotFoundError("Shop");
+    const updated = await shopsRepo.update(shop.id, { bannerUrl: null });
+    return withStats(updated, { viewerId: userId, isOwner: true });
+  },
+
   async demolishMine(userId: string) {
     const existing = await shopsRepo.findByOwnerIdAny(userId);
     if (!existing) {
