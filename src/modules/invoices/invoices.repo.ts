@@ -77,6 +77,17 @@ export const invoicesRepo = {
     });
   },
 
+  extendLine(id: string, autoReleaseAt: Date, reason: string) {
+    return prisma.invoiceLine.update({
+      where: { id },
+      data: {
+        autoReleaseAt,
+        extendedAt: new Date(),
+        extensionReason: reason,
+      },
+    });
+  },
+
   findLinesEligibleForAutoRelease(now: Date) {
     return prisma.invoiceLine.findMany({
       where: {

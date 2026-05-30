@@ -6,6 +6,7 @@ import {
   conversationInvoiceParam,
   createInvoiceSchema,
   disputeLineSchema,
+  extendLineSchema,
   invoiceIdParam,
   lineIdParam,
   payInvoiceSchema,
@@ -48,6 +49,14 @@ export const invoicesController = {
     if (!req.user) throw new UnauthorizedError();
     const { lineId } = lineIdParam.parse(req.params);
     const line = await invoicesService.confirmLine(req.user.id, lineId);
+    res.status(200).json({ line });
+  },
+
+  async extendLine(req: Request, res: Response) {
+    if (!req.user) throw new UnauthorizedError();
+    const { lineId } = lineIdParam.parse(req.params);
+    const input = extendLineSchema.parse(req.body);
+    const line = await invoicesService.extendLine(req.user.id, lineId, input);
     res.status(200).json({ line });
   },
 

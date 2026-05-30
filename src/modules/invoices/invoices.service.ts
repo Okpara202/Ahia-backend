@@ -15,6 +15,7 @@ import {
 import type {
   CreateInvoiceInput,
   DisputeLineInput,
+  ExtendLineInput,
   InvoiceLineInput,
   PayInvoiceInput,
 } from "./invoices.schemas.js";
@@ -382,6 +383,52 @@ export const invoicesService = {
     ]);
 
     return { dispute, line: await invoicesRepo.findLine(lineId) };
+  },
+
+  async extendLine(userId: string, lineId: string, input: ExtendLineInput) {
+    const line = await invoicesRepo.findLine(lineId);
+    if (!line) throw new NotFoundError("Invoice line");
+    const invoice = line.invoice;
+    if (invoice.buyerId !== userId) {
+      throw new AppError(403, "not_buyer", "Only the buyer can extend a line.");
+    }
+    if (line.status !== "pending" || line.autoReleaseAt === null) {
+      throw new AppError(
+        409,
+        "not_pending",
+        "Only pending lines that aren't under dispute can be extended.",
+      );
+    }
+    if (line.extendedAt !== null) {
+      throw new AppError(
+        409,
+        "already_extended",
+        "This line has already been extended.",
+      );
+    }
+
+    const newAutoReleaseAt = new Date(Date.now() + AUTO_RELEASE_DAYS * 24 * 60 * 60 * 1000);
+    const updated = await invoicesRepo.extendLine(lineId, newAutoReleaseAt, input.reason);
+
+    await broadcastInvoiceEvent(invoice.buyerId, invoice.sellerId, "invoice:line_extended", {
+      lineId,
+      invoiceId: invoice.id,
+      conversationId: invoice.conversationId,
+      autoReleaseAt: newAutoReleaseAt.toISOString(),
+      extendedAt: updated.extendedAt?.toISOString(),
+      extensionReason: input.reason,
+    });
+
+    await notificationsService.createForUser(invoice.sellerId, "invoice_line_extended", {
+      invoiceId: invoice.id,
+      lineId,
+      lineName: line.name,
+      amount: Number(line.unitPrice) * line.quantity,
+      autoReleaseAt: newAutoReleaseAt.toISOString(),
+      extensionReason: input.reason,
+    });
+
+    return invoicesRepo.findLine(lineId);
   },
 };
 

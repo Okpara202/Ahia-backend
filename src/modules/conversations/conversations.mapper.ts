@@ -137,6 +137,9 @@ export function formatMessageOut(message: MessageRow, viewerId: string) {
           status: line.status,
           position: line.position,
           resolvedAt: line.resolvedAt?.toISOString() ?? null,
+          autoReleaseAt: line.autoReleaseAt?.toISOString() ?? null,
+          extendedAt: line.extendedAt?.toISOString() ?? null,
+          extensionReason: line.extensionReason ?? null,
         })),
       },
     };

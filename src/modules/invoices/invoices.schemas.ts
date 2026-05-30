@@ -53,7 +53,12 @@ export const disputeLineSchema = z.object({
   evidenceUrl: z.string().url().optional(),
 });
 
+export const extendLineSchema = z.object({
+  reason: z.string().trim().min(3).max(200),
+});
+
 export type CreateInvoiceInput = z.infer<typeof createInvoiceSchema>;
 export type InvoiceLineInput = z.infer<typeof invoiceLineInputSchema>;
 export type PayInvoiceInput = z.infer<typeof payInvoiceSchema>;
 export type DisputeLineInput = z.infer<typeof disputeLineSchema>;
+export type ExtendLineInput = z.infer<typeof extendLineSchema>;

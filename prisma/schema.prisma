@@ -283,18 +283,20 @@ model Invoice {
 }
 
 model InvoiceLine {
-  id            String            @id @default(uuid()) @db.Uuid
-  invoiceId     String            @map("invoice_id") @db.Uuid
-  kind          InvoiceLineKind
-  productId     String?           @map("product_id") @db.Uuid
-  name          String
-  quantity      Int               @default(1)
-  unitPrice     Decimal           @map("unit_price") @db.Decimal(12, 2)
-  status        InvoiceLineStatus @default(pending)
-  position      Int               @default(0)
-  resolvedAt    DateTime?         @map("resolved_at")
-  autoReleaseAt DateTime?         @map("auto_release_at")
-  createdAt     DateTime          @default(now()) @map("created_at")
+  id              String            @id @default(uuid()) @db.Uuid
+  invoiceId       String            @map("invoice_id") @db.Uuid
+  kind            InvoiceLineKind
+  productId       String?           @map("product_id") @db.Uuid
+  name            String
+  quantity        Int               @default(1)
+  unitPrice       Decimal           @map("unit_price") @db.Decimal(12, 2)
+  status          InvoiceLineStatus @default(pending)
+  position        Int               @default(0)
+  resolvedAt      DateTime?         @map("resolved_at")
+  autoReleaseAt   DateTime?         @map("auto_release_at")
+  extendedAt      DateTime?         @map("extended_at")
+  extensionReason String?           @map("extension_reason") @db.VarChar(200)
+  createdAt       DateTime          @default(now()) @map("created_at")
 
   invoice Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   product Product? @relation("invoiceLineProduct", fields: [productId], references: [id])
