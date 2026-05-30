@@ -31,33 +31,36 @@ export const reviewsService = {
   },
 
   async create(userId: string, input: CreateReviewInput) {
-    const txn = await prisma.transaction.findUnique({
-      where: { id: input.transactionId },
-      include: { product: { select: { shop: { select: { ownerId: true } } } } },
+    const line = await prisma.invoiceLine.findUnique({
+      where: { id: input.invoiceLineId },
+      include: {
+        invoice: { select: { buyerId: true, sellerId: true } },
+        product: { select: { id: true, shopId: true } },
+      },
     });
-    if (!txn) throw new NotFoundError("Transaction");
-    if (txn.buyerId !== userId) {
-      throw new ForbiddenError("Only the buyer can review this transaction");
+    if (!line) throw new NotFoundError("Invoice line");
+    if (line.kind !== "product" || !line.product) {
+      throw new BadRequestError("Only product lines can be reviewed");
     }
-    if (txn.product.shop.ownerId === userId) {
+    if (line.invoice.buyerId !== userId) {
+      throw new ForbiddenError("Only the buyer can review this line");
+    }
+    if (line.invoice.sellerId === userId) {
       throw new AppError(400, "self_review", "You can't review your own product.");
     }
-    if (txn.status !== "released") {
-      throw new BadRequestError("Can only review transactions that have been released");
-    }
-    if (txn.productId !== input.productId) {
-      throw new BadRequestError("Product mismatch for this transaction");
+    if (line.status !== "released") {
+      throw new BadRequestError("Can only review lines that have been released");
     }
 
-    const existing = await reviewsRepo.findByTransactionId(input.transactionId);
+    const existing = await reviewsRepo.findByInvoiceLineId(input.invoiceLineId);
     if (existing) {
-      throw new ConflictError("REVIEW_EXISTS", "Transaction already reviewed");
+      throw new ConflictError("REVIEW_EXISTS", "Line already reviewed");
     }
 
     return reviewsRepo.create({
-      transaction: { connect: { id: input.transactionId } },
-      product: { connect: { id: input.productId } },
-      shop: { connect: { id: input.shopId } },
+      invoiceLine: { connect: { id: input.invoiceLineId } },
+      product: { connect: { id: line.product.id } },
+      shop: { connect: { id: line.product.shopId } },
       author: { connect: { id: userId } },
       rating: input.rating,
       body: input.body,

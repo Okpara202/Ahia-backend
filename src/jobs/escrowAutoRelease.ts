@@ -1,25 +1,21 @@
 import { logger } from "../config/logger.js";
-import { transactionsRepo } from "../modules/transactions/transactions.repo.js";
-import { transactionsBackground } from "../modules/transactions/transactions.service.js";
+import { invoicesRepo } from "../modules/invoices/invoices.repo.js";
+import { invoicesBackground } from "../modules/invoices/invoices.service.js";
 
-const AUTO_RELEASE_DAYS = 7;
 const TICK_MS = 60 * 60 * 1000;
 
 let timer: NodeJS.Timeout | null = null;
 
 async function runOnce() {
-  const eligible = await transactionsRepo.findEligibleForAutoRelease(
-    new Date(),
-    AUTO_RELEASE_DAYS,
-  );
+  const eligible = await invoicesRepo.findLinesEligibleForAutoRelease(new Date());
   if (eligible.length === 0) return;
-  logger.info("escrow auto-release: processing batch", { count: eligible.length });
-  for (const txn of eligible) {
+  logger.info("invoice line auto-release: processing batch", { count: eligible.length });
+  for (const line of eligible) {
     try {
-      await transactionsBackground.releaseEscrow(txn.id);
+      await invoicesBackground.autoReleaseLine(line.id);
     } catch (err) {
-      logger.error("escrow auto-release: failed", {
-        transactionId: txn.id,
+      logger.error("invoice line auto-release: failed", {
+        lineId: line.id,
         message: err instanceof Error ? err.message : String(err),
       });
     }
@@ -29,18 +25,18 @@ async function runOnce() {
 export function startEscrowAutoRelease() {
   if (timer) return;
   void runOnce().catch((err) =>
-    logger.error("escrow auto-release: initial run failed", {
+    logger.error("invoice line auto-release: initial run failed", {
       message: err instanceof Error ? err.message : String(err),
     }),
   );
   timer = setInterval(() => {
     void runOnce().catch((err) =>
-      logger.error("escrow auto-release: tick failed", {
+      logger.error("invoice line auto-release: tick failed", {
         message: err instanceof Error ? err.message : String(err),
       }),
     );
   }, TICK_MS);
-  logger.info("escrow auto-release: scheduled", { everyMs: TICK_MS, days: AUTO_RELEASE_DAYS });
+  logger.info("invoice line auto-release: scheduled", { everyMs: TICK_MS });
 }
 
 export function stopEscrowAutoRelease() {

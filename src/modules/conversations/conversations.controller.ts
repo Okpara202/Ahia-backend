@@ -2,26 +2,36 @@ import type { Request, Response } from "express";
 import { conversationsService } from "./conversations.service.js";
 import {
   conversationIdParam,
-  listMessagesQuery,
-  offerMessageIdParam,
-  resolveOfferSchema,
+  editTextSchema,
+  messageIdParam,
+  reactionSchema,
+  readReceiptSchema,
+  searchQuery,
   sendImageSchema,
-  sendOfferSchema,
   sendTextSchema,
+  sendVoiceSchema,
   startConversationSchema,
 } from "./conversations.schemas.js";
 import { UnauthorizedError, ValidationError } from "../../errors.js";
 
-function getFileBuffer(req: Request): Buffer | undefined {
-  return (req.file as Express.Multer.File | undefined)?.buffer;
+function getFileBuffer(req: Request, field = "file"): Buffer | undefined {
+  const single = req.file as Express.Multer.File | undefined;
+  if (single) return single.buffer;
+  const files = req.files as Express.Multer.File[] | Record<string, Express.Multer.File[]> | undefined;
+  if (Array.isArray(files) && files[0]) return files[0].buffer;
+  if (files && typeof files === "object" && !Array.isArray(files)) {
+    const named = files[field];
+    if (named && named[0]) return named[0].buffer;
+  }
+  return undefined;
 }
 
 export const conversationsController = {
   async start(req: Request, res: Response) {
     if (!req.user) throw new UnauthorizedError();
     const input = startConversationSchema.parse(req.body);
-    const conversation = await conversationsService.start(req.user.id, input);
-    res.status(201).json({ conversation });
+    const result = await conversationsService.start(req.user.id, input);
+    res.status(201).json(result);
   },
 
   async listMine(req: Request, res: Response) {
@@ -33,51 +43,71 @@ export const conversationsController = {
   async getById(req: Request, res: Response) {
     if (!req.user) throw new UnauthorizedError();
     const { id } = conversationIdParam.parse(req.params);
-    const conversation = await conversationsService.getById(req.user.id, id);
-    res.status(200).json({ conversation });
-  },
-
-  async listMessages(req: Request, res: Response) {
-    if (!req.user) throw new UnauthorizedError();
-    const { id } = conversationIdParam.parse(req.params);
-    const query = listMessagesQuery.parse(req.query);
-    const result = await conversationsService.listMessages(req.user.id, id, query);
+    const result = await conversationsService.getById(req.user.id, id);
     res.status(200).json(result);
   },
 
   async sendText(req: Request, res: Response) {
     if (!req.user) throw new UnauthorizedError();
     const { id } = conversationIdParam.parse(req.params);
-    const { body } = sendTextSchema.parse(req.body);
-    const message = await conversationsService.sendText(req.user.id, id, body);
+    const input = sendTextSchema.parse(req.body);
+    const message = await conversationsService.sendText(req.user.id, id, input);
     res.status(201).json({ message });
   },
 
   async sendImage(req: Request, res: Response) {
     if (!req.user) throw new UnauthorizedError();
     const { id } = conversationIdParam.parse(req.params);
-    const { caption } = sendImageSchema.parse(req.body);
-    const buffer = getFileBuffer(req);
+    const input = sendImageSchema.parse(req.body);
+    const buffer = getFileBuffer(req, "image_file");
     if (!buffer) {
-      throw new ValidationError("Image file is required", { image: "Required" });
+      throw new ValidationError("Image file is required", { image_file: "Required" });
     }
-    const message = await conversationsService.sendImage(req.user.id, id, buffer, caption);
+    const message = await conversationsService.sendImage(req.user.id, id, buffer, input);
     res.status(201).json({ message });
   },
 
-  async sendOffer(req: Request, res: Response) {
+  async sendVoice(req: Request, res: Response) {
     if (!req.user) throw new UnauthorizedError();
     const { id } = conversationIdParam.parse(req.params);
-    const { amount, note } = sendOfferSchema.parse(req.body);
-    const message = await conversationsService.sendOffer(req.user.id, id, amount, note);
+    const input = sendVoiceSchema.parse(req.body);
+    const buffer = getFileBuffer(req, "audio_file");
+    if (!buffer) {
+      throw new ValidationError("Audio file is required", { audio_file: "Required" });
+    }
+    const message = await conversationsService.sendVoice(req.user.id, id, buffer, input);
     res.status(201).json({ message });
   },
 
-  async resolveOffer(req: Request, res: Response) {
+  async editText(req: Request, res: Response) {
     if (!req.user) throw new UnauthorizedError();
-    const { id, messageId } = offerMessageIdParam.parse(req.params);
-    const { status } = resolveOfferSchema.parse(req.body);
-    const result = await conversationsService.resolveOffer(req.user.id, id, messageId, status);
+    const { id, messageId } = messageIdParam.parse(req.params);
+    const input = editTextSchema.parse(req.body);
+    const message = await conversationsService.editText(req.user.id, id, messageId, input);
+    res.status(200).json({ message });
+  },
+
+  async reaction(req: Request, res: Response) {
+    if (!req.user) throw new UnauthorizedError();
+    const { id, messageId } = messageIdParam.parse(req.params);
+    const input = reactionSchema.parse(req.body);
+    const result = await conversationsService.setReaction(req.user.id, id, messageId, input);
     res.status(200).json(result);
+  },
+
+  async markRead(req: Request, res: Response) {
+    if (!req.user) throw new UnauthorizedError();
+    const { id } = conversationIdParam.parse(req.params);
+    const input = readReceiptSchema.parse(req.body);
+    const result = await conversationsService.markRead(req.user.id, id, input.throughMessageId);
+    res.status(200).json(result);
+  },
+
+  async searchMessages(req: Request, res: Response) {
+    if (!req.user) throw new UnauthorizedError();
+    const { id } = conversationIdParam.parse(req.params);
+    const { q } = searchQuery.parse(req.query);
+    const matches = await conversationsService.searchMessages(req.user.id, id, q);
+    res.status(200).json({ matches });
   },
 };

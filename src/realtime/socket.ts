@@ -44,6 +44,38 @@ export function initSocket(httpServer: HttpServer) {
     socket.join(`user:${user.id}`);
     logger.info("socket: connected", { userId: user.id, socketId: socket.id });
 
+    void flushDeliveredOnConnect(user.id);
+
+    socket.on("typing:start", async (payload: { conversationId?: string }) => {
+      if (!payload?.conversationId) return;
+      try {
+        const { conversationsService } = await import(
+          "../modules/conversations/conversations.service.js"
+        );
+        await conversationsService.handleTyping(user.id, payload.conversationId, "start");
+      } catch (err) {
+        logger.warn("socket: typing:start failed", {
+          userId: user.id,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    });
+
+    socket.on("typing:stop", async (payload: { conversationId?: string }) => {
+      if (!payload?.conversationId) return;
+      try {
+        const { conversationsService } = await import(
+          "../modules/conversations/conversations.service.js"
+        );
+        await conversationsService.handleTyping(user.id, payload.conversationId, "stop");
+      } catch (err) {
+        logger.warn("socket: typing:stop failed", {
+          userId: user.id,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    });
+
     socket.on("disconnect", (reason) => {
       logger.info("socket: disconnected", {
         userId: user.id,
@@ -65,6 +97,20 @@ export function initSocket(httpServer: HttpServer) {
   }
 
   return io;
+}
+
+async function flushDeliveredOnConnect(userId: string) {
+  try {
+    const { conversationsService } = await import(
+      "../modules/conversations/conversations.service.js"
+    );
+    await conversationsService.flushDeliveredFor(userId);
+  } catch (err) {
+    logger.warn("socket: flushDeliveredFor failed", {
+      userId,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 export function broadcastToUser(userId: string, event: string, payload: unknown) {

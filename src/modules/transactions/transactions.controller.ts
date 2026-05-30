@@ -2,24 +2,12 @@ import type { Request, Response } from "express";
 import { UnauthorizedError } from "../../errors.js";
 import { transactionsService } from "./transactions.service.js";
 import {
-  initTransactionSchema,
   listTransactionsQuery,
   referenceParam,
   transactionIdParam,
 } from "./transactions.schemas.js";
 
 export const transactionsController = {
-  async init(req: Request, res: Response) {
-    if (!req.user) throw new UnauthorizedError();
-    const input = initTransactionSchema.parse(req.body);
-    const result = await transactionsService.initPurchase(
-      req.user.id,
-      input.productId,
-      input.callbackUrl,
-    );
-    res.status(200).json(result);
-  },
-
   async listMine(req: Request, res: Response) {
     if (!req.user) throw new UnauthorizedError();
     const query = listTransactionsQuery.parse(req.query);
@@ -45,20 +33,6 @@ export const transactionsController = {
     if (!req.user) throw new UnauthorizedError();
     const { reference } = referenceParam.parse(req.params);
     const transaction = await transactionsService.getByReference(req.user.id, reference);
-    res.status(200).json({ transaction });
-  },
-
-  async markDelivered(req: Request, res: Response) {
-    if (!req.user) throw new UnauthorizedError();
-    const { id } = transactionIdParam.parse(req.params);
-    const transaction = await transactionsService.markDelivered(req.user.id, id);
-    res.status(200).json({ transaction });
-  },
-
-  async release(req: Request, res: Response) {
-    if (!req.user) throw new UnauthorizedError();
-    const { id } = transactionIdParam.parse(req.params);
-    const transaction = await transactionsService.release(req.user.id, id);
     res.status(200).json({ transaction });
   },
 };

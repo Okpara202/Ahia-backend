@@ -1,19 +1,10 @@
 import { prisma } from "../../config/db.js";
-import {
-  BadRequestError,
-  ConflictError,
-  ForbiddenError,
-  NotFoundError,
-} from "../../errors.js";
+import { BadRequestError, ForbiddenError, NotFoundError } from "../../errors.js";
 import { broadcastToUser } from "../../realtime/socket.js";
 import { notificationsService } from "../notifications/notifications.service.js";
-import { transactionsRepo } from "../transactions/transactions.repo.js";
+import { recomputeInvoiceStatus } from "../invoices/invoices.repo.js";
 import { disputesRepo } from "./disputes.repo.js";
-import type {
-  ListDisputesQuery,
-  OpenDisputeInput,
-  ResolveDisputeInput,
-} from "./disputes.schemas.js";
+import type { ListDisputesQuery, ResolveDisputeInput } from "./disputes.schemas.js";
 import type { SessionUser } from "../../middleware/auth.js";
 
 function paginate<T extends { id: string }>(rows: T[], limit: number) {
@@ -24,63 +15,6 @@ function paginate<T extends { id: string }>(rows: T[], limit: number) {
 }
 
 export const disputesService = {
-  async open(userId: string, input: OpenDisputeInput) {
-    const txn = await transactionsRepo.findById(input.transactionId);
-    if (!txn) throw new NotFoundError("Transaction");
-
-    const buyerId = txn.buyerId;
-    const sellerId = txn.product.shop.ownerId;
-    if (userId !== buyerId && userId !== sellerId) {
-      throw new ForbiddenError("Not a participant in this transaction");
-    }
-    if (txn.status !== "held") {
-      throw new BadRequestError("Can only dispute transactions in held state");
-    }
-
-    const existing = await disputesRepo.findByTransactionId(input.transactionId);
-    if (existing) {
-      throw new ConflictError(
-        "DISPUTE_EXISTS",
-        "Dispute already opened for this transaction",
-      );
-    }
-
-    await prisma.$transaction(async (tx) => {
-      await tx.dispute.create({
-        data: {
-          transaction: { connect: { id: input.transactionId } },
-          raisedById: userId,
-          reason: input.reason,
-        },
-      });
-      await tx.transaction.update({
-        where: { id: input.transactionId },
-        data: { status: "disputed" },
-      });
-    });
-
-    const full = await disputesRepo.findByTransactionId(input.transactionId);
-    if (!full) throw new NotFoundError("Dispute");
-
-    const otherUserId = userId === buyerId ? sellerId : buyerId;
-    broadcastToUser(otherUserId, "dispute:opened", { dispute: full });
-
-    await Promise.all([
-      notificationsService.createForUser(buyerId, "dispute_opened", {
-        disputeId: full.id,
-        transactionId: input.transactionId,
-        raisedBy: userId,
-      }),
-      notificationsService.createForUser(sellerId, "dispute_opened", {
-        disputeId: full.id,
-        transactionId: input.transactionId,
-        raisedBy: userId,
-      }),
-    ]);
-
-    return full;
-  },
-
   async listMine(userId: string, query: ListDisputesQuery) {
     const rows = await disputesRepo.listForUser({
       userId,
@@ -94,8 +28,8 @@ export const disputesService = {
   async getById(user: SessionUser, id: string) {
     const dispute = await disputesRepo.findById(id);
     if (!dispute) throw new NotFoundError("Dispute");
-    const buyerId = dispute.transaction.buyerId;
-    const sellerId = dispute.transaction.product.shop.ownerId;
+    const buyerId = dispute.invoiceLine.invoice.buyerId;
+    const sellerId = dispute.invoiceLine.invoice.sellerId;
     if (user.role !== "admin" && user.id !== buyerId && user.id !== sellerId) {
       throw new ForbiddenError("Not a participant in this dispute");
     }
@@ -105,54 +39,58 @@ export const disputesService = {
   async resolve(id: string, input: ResolveDisputeInput) {
     const dispute = await disputesRepo.findById(id);
     if (!dispute) throw new NotFoundError("Dispute");
-    if (dispute.status !== "open") {
+    if (dispute.status !== "open" && dispute.status !== "reviewing") {
       throw new BadRequestError("Dispute already resolved");
     }
 
-    const buyerId = dispute.transaction.buyerId;
-    const sellerId = dispute.transaction.product.shop.ownerId;
-
-    const newTxnStatus =
-      input.resolution === "resolved_buyer"
-        ? ("refunded" as const)
-        : input.resolution === "resolved_seller"
-          ? ("released" as const)
-          : ("held" as const);
+    const invoice = dispute.invoiceLine.invoice;
+    const lineId = dispute.invoiceLineId;
+    const lineStatus = input.resolution === "released_to_seller" ? "released" : "refunded";
 
     await prisma.$transaction(async (tx) => {
       await tx.dispute.update({
         where: { id },
         data: {
-          status: input.resolution,
-          resolution: input.note,
+          status: "resolved",
+          resolution: input.resolution,
           resolvedAt: new Date(),
         },
       });
-      await tx.transaction.update({
-        where: { id: dispute.transactionId },
-        data: {
-          status: newTxnStatus,
-          ...(newTxnStatus === "released" ? { releasedAt: new Date() } : {}),
-        },
+      await tx.invoiceLine.update({
+        where: { id: lineId },
+        data: { status: lineStatus, resolvedAt: new Date() },
       });
     });
 
-    const full = await disputesRepo.findById(id);
+    const invoiceStatus = await recomputeInvoiceStatus(invoice.id);
 
-    broadcastToUser(buyerId, "dispute:resolved", { dispute: full });
-    broadcastToUser(sellerId, "dispute:resolved", { dispute: full });
+    const event = lineStatus === "released" ? "invoice:line_released" : "invoice:line_refunded";
+    const payload = {
+      lineId,
+      invoiceId: invoice.id,
+      conversationId: invoice.conversationId,
+      resolution: lineStatus,
+      invoiceStatus,
+      disputeId: id,
+    };
+    broadcastToUser(invoice.buyerId, event, payload);
+    broadcastToUser(invoice.sellerId, event, payload);
 
     await Promise.all([
-      notificationsService.createForUser(buyerId, "dispute_resolved", {
+      notificationsService.createForUser(invoice.buyerId, "dispute_resolved", {
         disputeId: id,
+        lineId,
+        invoiceId: invoice.id,
         resolution: input.resolution,
       }),
-      notificationsService.createForUser(sellerId, "dispute_resolved", {
+      notificationsService.createForUser(invoice.sellerId, "dispute_resolved", {
         disputeId: id,
+        lineId,
+        invoiceId: invoice.id,
         resolution: input.resolution,
       }),
     ]);
 
-    return full;
+    return disputesRepo.findById(id);
   },
 };

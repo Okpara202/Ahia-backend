@@ -4,18 +4,10 @@ import { disputesService } from "./disputes.service.js";
 import {
   disputeIdParam,
   listDisputesQuery,
-  openDisputeSchema,
   resolveDisputeSchema,
 } from "./disputes.schemas.js";
 
 export const disputesController = {
-  async open(req: Request, res: Response) {
-    if (!req.user) throw new UnauthorizedError();
-    const input = openDisputeSchema.parse(req.body);
-    const dispute = await disputesService.open(req.user.id, input);
-    res.status(201).json({ dispute });
-  },
-
   async listMine(req: Request, res: Response) {
     if (!req.user) throw new UnauthorizedError();
     const query = listDisputesQuery.parse(req.query);

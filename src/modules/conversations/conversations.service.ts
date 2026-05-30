@@ -1,262 +1,346 @@
 import { prisma } from "../../config/db.js";
-import {
-  AppError,
-  BadRequestError,
-  ForbiddenError,
-  NotFoundError,
-} from "../../errors.js";
-import { uploadImageBuffer } from "../../integrations/cloudinary.js";
-import { broadcastToOthers, broadcastToUser } from "../../realtime/socket.js";
+import { AppError, ForbiddenError, NotFoundError } from "../../errors.js";
+import { uploadImageBuffer, uploadVoiceBuffer } from "../../integrations/cloudinary.js";
+import { broadcastToUser } from "../../realtime/socket.js";
 import { conversationsRepo } from "./conversations.repo.js";
-import type { ListMessagesQuery, StartConversationInput } from "./conversations.schemas.js";
+import type {
+  EditTextInput,
+  ReactionInput,
+  SendImageInput,
+  SendTextInput,
+  SendVoiceInput,
+  StartConversationInput,
+} from "./conversations.schemas.js";
+import {
+  buildConversationResponse,
+  buildInboxItem,
+  formatMessageOut,
+} from "./conversations.mapper.js";
 
-type ConvoWithParticipants = NonNullable<
-  Awaited<ReturnType<typeof conversationsRepo.findById>>
->;
+const EDIT_WINDOW_MS = 15 * 60 * 1000;
 
-async function assertParticipant(
-  conversationId: string,
-  userId: string,
-): Promise<ConvoWithParticipants> {
+async function resolveShopAndSeller(sellerId: string) {
+  const shop = await prisma.shop.findFirst({
+    where: { ownerId: sellerId, deletedAt: null },
+    select: { id: true, isActive: true, deletedAt: true, ownerId: true },
+  });
+  if (!shop) {
+    throw new AppError(404, "no_shop", "This user does not have an active shop.");
+  }
+  return shop;
+}
+
+async function assertParticipant(conversationId: string, userId: string) {
   const convo = await conversationsRepo.findById(conversationId);
   if (!convo) throw new NotFoundError("Conversation");
-  const isParticipant = convo.participants.some((p) => p.userId === userId);
-  if (!isParticipant) {
+  if (convo.buyerId !== userId && convo.sellerId !== userId) {
     throw new ForbiddenError("Not a participant in this conversation");
   }
   return convo;
 }
 
-async function resolveSellerId(
-  productId: string | null,
-  shopId: string | null,
-): Promise<string> {
-  if (productId) {
-    const product = await prisma.product.findUnique({
-      where: { id: productId },
-      select: { shop: { select: { ownerId: true } } },
-    });
-    if (!product) throw new NotFoundError("Product");
-    return product.shop.ownerId;
-  }
-  if (shopId) {
-    const shop = await prisma.shop.findUnique({
-      where: { id: shopId },
-      select: { ownerId: true },
-    });
-    if (!shop) throw new NotFoundError("Shop");
-    return shop.ownerId;
-  }
-  throw new BadRequestError("Conversation has no product or shop reference");
+function counterpartyOf(convo: { buyerId: string; sellerId: string }, userId: string) {
+  return convo.buyerId === userId ? convo.sellerId : convo.buyerId;
 }
 
-async function assertShopAcceptingNewBuyers(
-  productId: string | null,
-  shopId: string | null,
-) {
-  let shop: { isActive: boolean; deletedAt: Date | null } | null = null;
-  if (productId) {
-    const product = await prisma.product.findUnique({
-      where: { id: productId },
-      select: { shop: { select: { isActive: true, deletedAt: true } } },
-    });
-    shop = product?.shop ?? null;
-  } else if (shopId) {
-    shop = await prisma.shop.findUnique({
-      where: { id: shopId },
-      select: { isActive: true, deletedAt: true },
-    });
-  }
-  if (!shop) return;
-  if (shop.deletedAt) {
-    throw new AppError(403, "shop_gone", "This shop is no longer available.");
-  }
-  if (!shop.isActive) {
-    throw new AppError(
-      403,
-      "shop_paused",
-      "This seller is on a break and isn't taking new orders right now.",
-    );
-  }
-}
+async function persistMessage(args: {
+  convoId: string;
+  senderId: string;
+  data: Parameters<typeof conversationsRepo.createMessage>[0];
+  recipientId: string;
+  emitExtraEvent?: string;
+}) {
+  const message = await conversationsRepo.createMessage(args.data);
+  await conversationsRepo.touchConversation(args.convoId, message.id);
+  await conversationsRepo.upsertDelivered(message.id, args.recipientId, new Date());
 
-function participantIds(convo: ConvoWithParticipants): string[] {
-  return convo.participants.map((p) => p.userId);
+  const refreshed = await conversationsRepo.findMessageById(message.id);
+  const out = formatMessageOut(refreshed!, args.recipientId);
+  broadcastToUser(args.recipientId, "message:new", {
+    conversationId: args.convoId,
+    message: out,
+  });
+  broadcastToUser(args.senderId, "message:delivered", {
+    messageId: message.id,
+    conversationId: args.convoId,
+    deliveredAt: new Date().toISOString(),
+  });
+  if (args.emitExtraEvent) {
+    broadcastToUser(args.recipientId, args.emitExtraEvent, {
+      conversationId: args.convoId,
+      message: out,
+    });
+  }
+  return out;
 }
 
 export const conversationsService = {
   async start(userId: string, input: StartConversationInput) {
-    const sellerId = await resolveSellerId(input.productId ?? null, input.shopId ?? null);
-    if (sellerId === userId) {
+    if (userId === input.sellerId) {
       throw new AppError(400, "self_conversation", "You can't message your own shop.");
     }
 
-    const existing = await conversationsRepo.findExisting({
-      productId: input.productId,
-      shopId: input.shopId,
-      userIds: [userId, sellerId],
-    });
-    if (existing) return existing;
+    const existing = await conversationsRepo.findByPair(userId, input.sellerId);
+    if (existing) {
+      return buildConversationResponse(existing, [], userId);
+    }
 
-    await assertShopAcceptingNewBuyers(
-      input.productId ?? null,
-      input.shopId ?? null,
-    );
+    const shop = await resolveShopAndSeller(input.sellerId);
+    if (shop.deletedAt) {
+      throw new AppError(403, "shop_gone", "This shop is no longer available.");
+    }
+    if (!shop.isActive) {
+      throw new AppError(
+        403,
+        "shop_paused",
+        "This seller is on a break and isn't taking new orders right now.",
+      );
+    }
 
-    return conversationsRepo.create({
-      productId: input.productId,
-      shopId: input.shopId,
-      userIds: [userId, sellerId],
+    const convo = await conversationsRepo.create({
+      buyerId: userId,
+      sellerId: input.sellerId,
+      shopId: shop.id,
     });
+
+    return buildConversationResponse(convo, [], userId);
   },
 
   async listMine(userId: string) {
-    return conversationsRepo.listForUser(userId);
+    const rows = await conversationsRepo.listForUser(userId);
+    const counts = await Promise.all(
+      rows.map((row) =>
+        prisma.message.count({
+          where: {
+            conversationId: row.id,
+            senderId: { not: userId },
+            reads: { none: { userId, readAt: { not: null } } },
+          },
+        }),
+      ),
+    );
+    return rows.map((row, i) => buildInboxItem(row, userId, counts[i] ?? 0));
   },
 
-  async getById(userId: string, id: string) {
-    return assertParticipant(id, userId);
-  },
-
-  async listMessages(userId: string, conversationId: string, query: ListMessagesQuery) {
-    await assertParticipant(conversationId, userId);
-    const rows = await conversationsRepo.listMessages({
-      conversationId,
-      take: query.limit,
-      cursor: query.cursor,
-    });
-    const hasMore = rows.length > query.limit;
-    const items = hasMore ? rows.slice(0, query.limit) : rows;
-    const nextCursor = hasMore ? items[items.length - 1]?.id ?? null : null;
-    return { items, nextCursor };
-  },
-
-  async sendText(userId: string, conversationId: string, body: string) {
+  async getById(userId: string, conversationId: string) {
     const convo = await assertParticipant(conversationId, userId);
-    const message = await conversationsRepo.createMessage({
-      conversation: { connect: { id: conversationId } },
-      sender: { connect: { id: userId } },
-      type: "text",
-      body,
+    const messages = await conversationsRepo.listAllMessages(conversationId);
+    return buildConversationResponse(convo, messages, userId);
+  },
+
+  async sendText(userId: string, conversationId: string, input: SendTextInput) {
+    const convo = await assertParticipant(conversationId, userId);
+    return persistMessage({
+      convoId: conversationId,
+      senderId: userId,
+      recipientId: counterpartyOf(convo, userId),
+      data: {
+        conversation: { connect: { id: conversationId } },
+        sender: { connect: { id: userId } },
+        type: "text",
+        content: input.content,
+        ...(input.contextProductId && {
+          contextProduct: { connect: { id: input.contextProductId } },
+        }),
+      },
     });
-    await conversationsRepo.touchUpdatedAt(conversationId);
-    broadcastToOthers(participantIds(convo), userId, "message:new", {
-      conversationId,
-      message,
-    });
-    return message;
   },
 
   async sendImage(
     userId: string,
     conversationId: string,
     fileBuffer: Buffer,
-    caption: string | undefined,
+    input: SendImageInput,
   ) {
     const convo = await assertParticipant(conversationId, userId);
     const imageUrl = await uploadImageBuffer(fileBuffer, {
       folder: `ahia/messages/${conversationId}`,
     });
-    const message = await conversationsRepo.createMessage({
-      conversation: { connect: { id: conversationId } },
-      sender: { connect: { id: userId } },
-      type: "image",
-      imageUrl,
-      imageCaption: caption,
+    return persistMessage({
+      convoId: conversationId,
+      senderId: userId,
+      recipientId: counterpartyOf(convo, userId),
+      emitExtraEvent: "image:new",
+      data: {
+        conversation: { connect: { id: conversationId } },
+        sender: { connect: { id: userId } },
+        type: "image",
+        imageUrl,
+        content: input.caption,
+        ...(input.contextProductId && {
+          contextProduct: { connect: { id: input.contextProductId } },
+        }),
+      },
     });
-    await conversationsRepo.touchUpdatedAt(conversationId);
-    const otherIds = participantIds(convo);
-    broadcastToOthers(otherIds, userId, "message:new", {
-      conversationId,
-      message,
-    });
-    broadcastToOthers(otherIds, userId, "image:new", {
-      conversationId,
-      message,
-    });
-    return message;
   },
 
-  async sendOffer(
+  async sendVoice(
     userId: string,
     conversationId: string,
-    amount: number,
-    note: string | undefined,
+    fileBuffer: Buffer,
+    input: SendVoiceInput,
   ) {
     const convo = await assertParticipant(conversationId, userId);
-    const sellerId = await resolveSellerId(convo.productId, convo.shopId);
-    if (userId === sellerId) {
-      throw new ForbiddenError("Only the buyer can send an offer");
-    }
-    const message = await conversationsRepo.createMessage({
-      conversation: { connect: { id: conversationId } },
-      sender: { connect: { id: userId } },
-      type: "offer",
-      offerAmount: amount,
-      offerStatus: "pending",
-      offerNote: note,
+    const voiceUrl = await uploadVoiceBuffer(fileBuffer, {
+      folder: `ahia/voice/${conversationId}`,
     });
-    await conversationsRepo.touchUpdatedAt(conversationId);
-    broadcastToOthers(participantIds(convo), userId, "message:new", {
-      conversationId,
-      message,
+    return persistMessage({
+      convoId: conversationId,
+      senderId: userId,
+      recipientId: counterpartyOf(convo, userId),
+      data: {
+        conversation: { connect: { id: conversationId } },
+        sender: { connect: { id: userId } },
+        type: "voice",
+        voiceUrl,
+        voiceDurationMs: input.durationMs,
+        ...(input.contextProductId && {
+          contextProduct: { connect: { id: input.contextProductId } },
+        }),
+      },
     });
-    broadcastToUser(sellerId, "offer:new", { conversationId, message });
-    return message;
   },
 
-  async resolveOffer(
+  async editText(
     userId: string,
     conversationId: string,
     messageId: string,
-    status: "accepted" | "declined",
+    input: EditTextInput,
   ) {
     const convo = await assertParticipant(conversationId, userId);
-    const sellerId = await resolveSellerId(convo.productId, convo.shopId);
-    if (userId !== sellerId) {
-      throw new ForbiddenError("Only the seller can accept or decline an offer");
-    }
     const message = await conversationsRepo.findMessageById(messageId);
     if (!message || message.conversationId !== conversationId) {
-      throw new NotFoundError("Offer");
+      throw new NotFoundError("Message");
     }
-    if (message.type !== "offer") {
-      throw new BadRequestError("Message is not an offer");
+    if (message.senderId !== userId) {
+      throw new AppError(403, "not_sender", "Only the sender can edit this message.");
     }
-    if (message.offerStatus !== "pending") {
-      throw new BadRequestError("Offer already resolved");
+    if (message.type !== "text") {
+      throw new AppError(400, "not_text", "Only text messages can be edited.");
+    }
+    const ageMs = Date.now() - message.createdAt.getTime();
+    if (ageMs > EDIT_WINDOW_MS) {
+      throw new AppError(
+        400,
+        "edit_window_expired",
+        "Messages can only be edited within 15 minutes.",
+      );
     }
 
     const updated = await conversationsRepo.updateMessage(messageId, {
-      offerStatus: status,
+      content: input.content,
+      editedAt: new Date(),
     });
-
-    const amount = message.offerAmount?.toString() ?? "?";
-    const systemBody =
-      status === "accepted"
-        ? `Offer of ₦${amount} accepted`
-        : `Offer of ₦${amount} declined`;
-    const systemMessage = await conversationsRepo.createMessage({
-      conversation: { connect: { id: conversationId } },
-      type: "system",
-      body: systemBody,
-    });
-    await conversationsRepo.touchUpdatedAt(conversationId);
-
-    broadcastToOthers(participantIds(convo), userId, "message:new", {
+    const out = formatMessageOut(updated, userId);
+    const recipientId = counterpartyOf(convo, userId);
+    broadcastToUser(recipientId, "message:edited", {
       conversationId,
-      message: systemMessage,
+      message: out,
     });
-    const buyerId = participantIds(convo).find((id) => id !== sellerId);
-    if (buyerId) {
-      broadcastToUser(buyerId, "offer:resolved", {
-        conversationId,
-        messageId,
-        status,
-        offer: updated,
-      });
+    return out;
+  },
+
+  async setReaction(
+    userId: string,
+    conversationId: string,
+    messageId: string,
+    input: ReactionInput,
+  ) {
+    const convo = await assertParticipant(conversationId, userId);
+    const message = await conversationsRepo.findMessageById(messageId);
+    if (!message || message.conversationId !== conversationId) {
+      throw new NotFoundError("Message");
     }
 
-    return { offer: updated, system: systemMessage };
+    const existing = message.reactions.find((r) => r.userId === userId);
+    if (existing && existing.emoji === input.emoji) {
+      await conversationsRepo.deleteReaction(messageId, userId);
+    } else {
+      await conversationsRepo.upsertReaction(messageId, userId, input.emoji);
+    }
+    const reactions = await conversationsRepo.listReactions(messageId);
+    const recipientId = counterpartyOf(convo, userId);
+    const payload = { messageId, conversationId, reactions };
+    broadcastToUser(recipientId, "message:reaction_changed", payload);
+    broadcastToUser(userId, "message:reaction_changed", payload);
+    return { reactions };
+  },
+
+  async markRead(userId: string, conversationId: string, throughMessageId: string) {
+    const convo = await assertParticipant(conversationId, userId);
+    const when = new Date();
+    const marked = await conversationsRepo.markRead({
+      conversationId,
+      readerId: userId,
+      throughMessageId,
+      when,
+    });
+    const senderId = counterpartyOf(convo, userId);
+    if (marked.length > 0) {
+      broadcastToUser(senderId, "message:read", {
+        conversationId,
+        throughMessageId,
+        readerId: userId,
+        readAt: when.toISOString(),
+      });
+    }
+    return { count: marked.length, readAt: when.toISOString() };
+  },
+
+  async searchMessages(userId: string, conversationId: string, q: string) {
+    await assertParticipant(conversationId, userId);
+    const rows = await conversationsRepo.searchMessages(conversationId, q);
+    return rows.map((row) => ({
+      messageId: row.id,
+      snippet: row.content?.slice(0, 200) ?? "",
+      createdAt: row.createdAt,
+    }));
+  },
+
+  async handleTyping(userId: string, conversationId: string, state: "start" | "stop") {
+    const convo = await assertParticipant(conversationId, userId);
+    const recipientId = counterpartyOf(convo, userId);
+    broadcastToUser(recipientId, state === "start" ? "typing:start" : "typing:stop", {
+      conversationId,
+      userId,
+    });
+  },
+
+  async flushDeliveredFor(userId: string) {
+    const undelivered = await prisma.message.findMany({
+      where: {
+        senderId: { not: userId },
+        conversation: {
+          OR: [{ buyerId: userId }, { sellerId: userId }],
+        },
+        reads: { none: { userId } },
+      },
+      select: { id: true, conversationId: true, senderId: true },
+      take: 200,
+      orderBy: { createdAt: "asc" },
+    });
+    if (undelivered.length === 0) return;
+    const when = new Date();
+    for (const m of undelivered) {
+      await conversationsRepo.upsertDelivered(m.id, userId, when);
+      if (m.senderId) {
+        broadcastToUser(m.senderId, "message:delivered", {
+          messageId: m.id,
+          conversationId: m.conversationId,
+          deliveredAt: when.toISOString(),
+        });
+      }
+    }
+  },
+
+  async assertParticipant(conversationId: string, userId: string) {
+    return assertParticipant(conversationId, userId);
+  },
+
+  async refreshMessage(messageId: string, viewerId: string) {
+    const message = await conversationsRepo.findMessageById(messageId);
+    if (!message) return null;
+    return formatMessageOut(message, viewerId);
   },
 };
+

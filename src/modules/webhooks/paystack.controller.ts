@@ -3,7 +3,7 @@ import { logger } from "../../config/logger.js";
 import { paystack } from "../../integrations/paystack.js";
 import { boostsService } from "../boosts/boosts.service.js";
 import { discoverService } from "../discover/discover.service.js";
-import { transactionsService } from "../transactions/transactions.service.js";
+import { invoicesService } from "../invoices/invoices.service.js";
 
 type PaystackEvent = {
   event: string;
@@ -17,8 +17,10 @@ type PaystackEvent = {
 async function handleChargeSuccess(payload: PaystackEvent) {
   const type = payload.data.metadata?.type;
   switch (type) {
-    case "escrow":
-      await transactionsService.handlePaystackSuccess(payload);
+    case "invoice":
+      await invoicesService.handlePaystackSuccess(
+        payload as Parameters<typeof invoicesService.handlePaystackSuccess>[0],
+      );
       return;
     case "boost":
       await boostsService.handlePaystackSuccess(payload);

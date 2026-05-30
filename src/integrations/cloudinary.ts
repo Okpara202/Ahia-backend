@@ -51,6 +51,28 @@ export function uploadImageBuffer(buffer: Buffer, opts: UploadOptions): Promise<
   });
 }
 
+export function uploadVoiceBuffer(buffer: Buffer, opts: UploadOptions): Promise<string> {
+  if (!isConfigured) throw new InternalError("Cloudinary not configured");
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder: opts.folder,
+        public_id: opts.publicId,
+        resource_type: "video", // Cloudinary treats audio as video resource type
+        overwrite: !!opts.publicId,
+      },
+      (err, result) => {
+        if (err || !result?.secure_url) {
+          reject(err ?? new InternalError("Cloudinary voice upload returned no URL"));
+        } else {
+          resolve(result.secure_url);
+        }
+      },
+    );
+    stream.end(buffer);
+  });
+}
+
 export function uploadVideoBuffer(
   buffer: Buffer,
   opts: UploadOptions,

@@ -9,20 +9,27 @@ type VerifyResult =
   | { status: "success"; next: string; id: string }
   | { status: "pending" };
 
-async function verifyEscrow(reference: string, userId: string): Promise<VerifyResult> {
-  const txn = await prisma.transaction.findUnique({
+async function verifyInvoice(reference: string, userId: string): Promise<VerifyResult> {
+  const invoice = await prisma.invoice.findUnique({
     where: { paystackRef: reference },
     select: {
       id: true,
       buyerId: true,
-      product: { select: { shop: { select: { ownerId: true } } } },
+      sellerId: true,
+      conversationId: true,
+      status: true,
     },
   });
-  if (!txn) return { status: "pending" };
-  if (txn.buyerId !== userId && txn.product.shop.ownerId !== userId) {
+  if (!invoice) return { status: "pending" };
+  if (invoice.buyerId !== userId && invoice.sellerId !== userId) {
     return { status: "pending" };
   }
-  return { status: "success", next: `/transactions/${txn.id}`, id: txn.id };
+  if (invoice.status === "pending") return { status: "pending" };
+  return {
+    status: "success",
+    next: `/inbox/${invoice.conversationId}`,
+    id: invoice.id,
+  };
 }
 
 async function verifyBoost(reference: string, userId: string): Promise<VerifyResult> {
@@ -55,8 +62,8 @@ export const paymentsController = {
     const userId = req.user.id;
 
     let result: VerifyResult;
-    if (reference.startsWith("ahia_escrow_")) {
-      result = await verifyEscrow(reference, userId);
+    if (reference.startsWith("ahia_invoice_")) {
+      result = await verifyInvoice(reference, userId);
     } else if (reference.startsWith("ahia_boost_")) {
       result = await verifyBoost(reference, userId);
     } else if (reference.startsWith("ahia_discover_")) {

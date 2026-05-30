@@ -2,12 +2,17 @@ import { prisma } from "../../config/db.js";
 import type { DisputeStatus, Prisma } from "@prisma/client";
 
 const disputeInclude = {
-  transaction: {
+  invoiceLine: {
     include: {
-      product: { include: { shop: true } },
-      buyer: { select: { id: true, name: true, avatarUrl: true } },
+      invoice: {
+        include: {
+          buyer: { select: { id: true, name: true, avatarUrl: true } },
+          seller: { select: { id: true, name: true, avatarUrl: true } },
+        },
+      },
     },
   },
+  raisedBy: { select: { id: true, name: true, avatarUrl: true } },
 } satisfies Prisma.DisputeInclude;
 
 export const disputesRepo = {
@@ -15,9 +20,9 @@ export const disputesRepo = {
     return prisma.dispute.findUnique({ where: { id }, include: disputeInclude });
   },
 
-  findByTransactionId(transactionId: string) {
+  findByLineId(invoiceLineId: string) {
     return prisma.dispute.findUnique({
-      where: { transactionId },
+      where: { invoiceLineId },
       include: disputeInclude,
     });
   },
@@ -31,8 +36,8 @@ export const disputesRepo = {
     return prisma.dispute.findMany({
       where: {
         OR: [
-          { transaction: { buyerId: args.userId } },
-          { transaction: { product: { shop: { ownerId: args.userId } } } },
+          { invoiceLine: { invoice: { buyerId: args.userId } } },
+          { invoiceLine: { invoice: { sellerId: args.userId } } },
         ],
         ...(args.status ? { status: args.status } : {}),
       },

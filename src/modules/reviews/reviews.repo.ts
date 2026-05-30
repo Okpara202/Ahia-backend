@@ -28,8 +28,8 @@ export const reviewsRepo = {
     });
   },
 
-  findByTransactionId(transactionId: string) {
-    return prisma.review.findUnique({ where: { transactionId } });
+  findByInvoiceLineId(invoiceLineId: string) {
+    return prisma.review.findUnique({ where: { invoiceLineId } });
   },
 
   create(data: Prisma.ReviewCreateInput) {

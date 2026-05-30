@@ -25,6 +25,7 @@ import webhooksRoutes from "./modules/webhooks/webhooks.routes.js";
 import usersRoutes from "./modules/users/users.routes.js";
 import paymentsRoutes from "./modules/payments/payments.routes.js";
 import searchRoutes from "./modules/search/search.routes.js";
+import invoicesRoutes from "./modules/invoices/invoices.routes.js";
 import { productsController } from "./modules/products/products.controller.js";
 
 export function createApp() {
@@ -69,6 +70,7 @@ export function createApp() {
   app.use("/notifications", notificationsRoutes);
   app.use("/transactions", transactionsRoutes);
   app.use("/disputes", disputesRoutes);
+  app.use(invoicesRoutes);
   app.use("/boosts", boostsRoutes);
   app.use("/discover", discoverRoutes);
   app.use("/users", usersRoutes);
