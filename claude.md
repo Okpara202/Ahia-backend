@@ -8,10 +8,12 @@ backend team needs.
 Use this alongside the type definitions in [`src/types/index.ts`](src/types/index.ts) —
 those are the shapes the frontend already consumes.
 
-> **Looking for the frontend integration contract?** See [`FRONTEND_HANDOFF.md`](FRONTEND_HANDOFF.md)
-> for the post-build documentation: every endpoint, response shape, Socket.io event,
-> Paystack flow, and what's deferred. That doc is authoritative for "what's actually
-> shipped"; this one is the original plan + decisions.
+> **Looking for the frontend integration contract?** It's shared with the frontend dev
+> out-of-band as a rolling series of `FRONTEND_REPLY_<date>[_partN].md` files (kept local
+> via `.gitignore`). Each one responds to a frontend handoff doc and lists newly-shipped
+> endpoints, response shapes, error codes, Socket.io events, and the action list for
+> their side. The most recent reply is authoritative for "what's actually shipped";
+> this file is the original plan + the durable decisions behind the build.
 
 ---
 
@@ -45,7 +47,7 @@ those are the shapes the frontend already consumes.
 | Resend (transactional emails) | ⚠️ Integration null-safe, no API key set — emails skipped in dev |
 | Admin UI | — No frontend; flip role via Prisma Studio |
 | Apple webhook (form-post) | ⏸ With Apple OAuth |
-| Payment-request message type | Reserved in schema enum; no endpoint yet |
+| Payment-request message type | ⛔ Reserved in schema enum, **intentionally not built** — the existing `offer` flow (buyer-initiated offer + seller accept → buyer pays via `POST /transactions`) covers the use case without re-architecting the webhook-as-source-of-truth pattern. Building a seller-initiated `payment_request` would require pre-creating transaction rows before Paystack confirms, which conflicts with our orphan-row prevention. |
 | Browse-before-signup gating | ✅ Enforced per-route via `requireAuth`; no global allowlist needed |
 | Shop pause (`isActive`) | ✅ `PATCH /shops/me { isActive: false }`; hidden from discovery, shop data intact |
 | Shop demolish (`deletedAt`) | ✅ `DELETE /shops/me` soft-deletes + flips role to "buyer" in one transaction; partial unique index allows opening a new shop after |
@@ -89,6 +91,8 @@ auto-release + boost expiry).
 - **`optionalAuth` middleware:** new middleware that decodes the session cookie if present but doesn't 401 if absent. Used on `GET /shops/:id` so guests get `isFollowing: null` and authed users get a real boolean — without forcing auth on what's a public endpoint.
 - **`ownerName` fails closed:** `GET /shops/:id` includes `ownerName` only when `showLegalName=true` — omitted entirely (not sent as `null`) when false. If frontend forgets the privacy check, the field literally isn't in the payload, so nothing can leak. `GET /shops/me` always includes it (owners always see their own name).
 - **`prisma migrate dev` doesn't work in agent shell:** the command requires an interactive TTY which the harness doesn't provide. Workaround: hand-write the migration SQL into a new `prisma/migrations/<timestamp>_<name>/` folder and apply via `prisma migrate deploy` (which IS non-interactive). For schema diffs Prisma can express natively, copy what `prisma migrate dev` would produce by inspecting model→DDL conventions. Hand-edits also work for SQL Prisma can't express (partial unique indexes).
+- **Render build needs `--include=dev`:** Render sets `NODE_ENV=production` during build, which makes `npm install` skip `devDependencies`. TypeScript, the Prisma CLI, and every `@types/*` live there. Without the flag, build fails with `Could not find a declaration file for module 'express'` (etc.). The build command in `render.yaml` is `npm install --include=dev && npm run build && npx prisma migrate deploy`. Runtime is unaffected (`npm start` runs compiled `dist/`, only needs runtime `dependencies`), so production stays lean.
+- **Payment-request flow explicitly not built:** the `payment_request` value stays in the `MessageType` enum but no endpoint creates such messages and no socket event is emitted. Frontend's seller-initiated payment ask is served by the existing `offer` flow: buyer sends `POST /conversations/:id/offer { amount, note? }`, seller accepts via `PATCH /conversations/:id/offer/:messageId { status: "accepted" }`, then buyer hits `POST /transactions { productId }` for the agreed amount. Building a true `payment_request` would require pre-creating transaction rows in a `pending` status (so the buyer's pay button has an id to target), which conflicts with the orphan-prevention design — txn rows are only created when Paystack confirms. Revisit only if a v2 feature genuinely needs seller-initiated payments at custom amounts that can't be modeled as offers.
 
 **Endpoints/contract changes from the plan:**
 - `transactions/by-reference/:reference` — added for the frontend to poll after Paystack returns. Not in §2 of the original plan.
@@ -117,7 +121,7 @@ auto-release + boost expiry).
 
 **Deploy artifacts:**
 - [`render.yaml`](render.yaml) — Render Blueprint declaring the web service, build/start/migrate commands, health check path (`/health`), and 15 env vars marked `sync: false` (to be filled per environment).
-- `package.json` build script: `prisma generate && tsc -p tsconfig.json` — generates the Prisma client before compilation. Render's `buildCommand` runs `npm install && npm run build && npx prisma migrate deploy`.
+- `package.json` build script: `prisma generate && tsc -p tsconfig.json` — generates the Prisma client before compilation. Render's `buildCommand` runs `npm install --include=dev && npm run build && npx prisma migrate deploy` (the `--include=dev` is required because Render sets `NODE_ENV=production` during build, which would otherwise skip the dev-only TypeScript / `@types/*` / Prisma CLI deps).
 
 ---
 
