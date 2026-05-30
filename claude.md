@@ -15,7 +15,7 @@ those are the shapes the frontend already consumes.
 
 ---
 
-## 0a. Build status (last updated 2026-05-29)
+## 0a. Build status (last updated 2026-05-29, round 2)
 
 **Shipped end-to-end:**
 
@@ -47,6 +47,12 @@ those are the shapes the frontend already consumes.
 | Apple webhook (form-post) | ⏸ With Apple OAuth |
 | Payment-request message type | Reserved in schema enum; no endpoint yet |
 | Browse-before-signup gating | ✅ Enforced per-route via `requireAuth`; no global allowlist needed |
+| Shop pause (`isActive`) | ✅ `PATCH /shops/me { isActive: false }`; hidden from discovery, shop data intact |
+| Shop demolish (`deletedAt`) | ✅ `DELETE /shops/me` soft-deletes + flips role to "buyer" in one transaction; partial unique index allows opening a new shop after |
+| Follow / unfollow shops | ✅ `POST/DELETE /shops/:id/follow`; idempotent REST; `followerCount` + `isFollowing` on shop responses |
+| Paused-shop buyer guards | ✅ `POST /conversations` and `POST /transactions` block new buyers from paused/demolished shops; existing convos pass through |
+| `shop_reopened` notification | ✅ Fans out to followers when seller un-pauses |
+| `ownerName` privacy toggle | ✅ Returned on `GET /shops/:id` only when `showLegalName=true` (omitted otherwise — fails closed) |
 
 **Infra shipped:** Winston logger (JSON in prod, pretty in dev), custom error hierarchy
 (`AppError` + `NotFoundError` / `ForbiddenError` / etc.), Zod validation on every
@@ -58,6 +64,8 @@ auto-release + boost expiry).
 1. `init` — all 16 base tables + enums (matches the CLAUDE.md §7 schema)
 2. `v1_paystack_refs_and_referral_constraints` — combined: `paystack_ref` unique columns on Boost + DiscoverCampaign, foreign key on DiscoverPost.shopId + index, `Referral` constraint swap (dropped `@unique` on `code`, added composite `@@unique([referrerId, inviteeId])` + `@@index([inviteeId, status])`)
 3. `add_shop_category` — added nullable `category` column on `shops` to support the frontend's shop-create form (required at the API layer via Zod, nullable in the DB so existing rows don't backfill)
+4. `shop_pause_and_demolish` — added `is_active` (default true) and `deleted_at` columns on `shops`; dropped strict `@unique` on `owner_id` and replaced with a partial unique index `WHERE deleted_at IS NULL` so a user can demolish then open a new shop. Migration SQL was hand-edited to add the partial index (Prisma can't express partial unique in schema).
+5. `add_follows` — new `follows` table (composite PK on `user_id+shop_id`, FK CASCADE on both, indexes on each side). Hand-written migration applied via `prisma migrate deploy` because `prisma migrate dev` requires an interactive TTY which isn't available in the agent shell.
 
 **Decisions made during build:**
 - **ORM: Prisma** (over Drizzle).
@@ -75,6 +83,12 @@ auto-release + boost expiry).
 - **Role-aware shop visibility:** `/feed`, `/search?type=products`, `/search?type=shops`, and `/locations` filter by `shop.owner.role === "seller"` via JOIN. Lets a user toggle to `role: "buyer"` without deleting their shop — it's just hidden from discovery surfaces. Direct lookups (`/shops/:id`, `/shops/me`, `/shops/:id/products`, `/products/:id`) stay unfiltered so in-flight conversations and transactions still resolve.
 - **Shop create endpoint path:** `POST /shops` (collection style, owner inferred from session cookie) instead of `POST /shops/me`. `GET /shops/me` and `PATCH /shops/me` still exist as personal-namespaced operations on the user's own shop.
 - **Root route returns 200:** `GET /` and `HEAD /` return `{ ok: true, service: "ahia-backend" }` so Render's internal probes don't generate 404 warn-logs on every wake.
+- **Shop pause vs demolish:** two separate signals. `isActive=false` is a temporary pause (shop hidden from feed/search, owner's role unchanged, easy reopen). `deletedAt != null` is a permanent soft-delete tombstone (shop 404s from direct lookups, owner flipped back to "buyer", `handle` retained to prevent impersonation). A partial unique index on `(owner_id) WHERE deleted_at IS NULL` allows a user to demolish and open a new shop with a new handle.
+- **Paused-shop buyer guards (asymmetric):** new buyers blocked from paused shops (`POST /conversations` 403 `shop_paused`, `POST /transactions { productId }` 403 `shop_paused`), but **existing buyers stay unblocked** so in-flight conversations and payments still complete. The transaction guard auto-checks for any existing conversation between buyer and seller — if one exists, the buyer is honoring a prior commitment and the pay flow proceeds. No new request param needed.
+- **Follow design is REST not toggle:** `POST /shops/:id/follow` and `DELETE /shops/:id/follow` separately (both idempotent), not a single POST that flips. Safer under retries and races; matches frontend's handoff spec. Frontend's button still LOOKS like a toggle but dispatches the right verb based on `shop.isFollowing` it already has.
+- **`optionalAuth` middleware:** new middleware that decodes the session cookie if present but doesn't 401 if absent. Used on `GET /shops/:id` so guests get `isFollowing: null` and authed users get a real boolean — without forcing auth on what's a public endpoint.
+- **`ownerName` fails closed:** `GET /shops/:id` includes `ownerName` only when `showLegalName=true` — omitted entirely (not sent as `null`) when false. If frontend forgets the privacy check, the field literally isn't in the payload, so nothing can leak. `GET /shops/me` always includes it (owners always see their own name).
+- **`prisma migrate dev` doesn't work in agent shell:** the command requires an interactive TTY which the harness doesn't provide. Workaround: hand-write the migration SQL into a new `prisma/migrations/<timestamp>_<name>/` folder and apply via `prisma migrate deploy` (which IS non-interactive). For schema diffs Prisma can express natively, copy what `prisma migrate dev` would produce by inspecting model→DDL conventions. Hand-edits also work for SQL Prisma can't express (partial unique indexes).
 
 **Endpoints/contract changes from the plan:**
 - `transactions/by-reference/:reference` — added for the frontend to poll after Paystack returns. Not in §2 of the original plan.
@@ -91,6 +105,15 @@ auto-release + boost expiry).
 - `GET /transactions` — alias for `GET /transactions/me`.
 - `image:new` socket event — emitted alongside `message:new` whenever an image message is sent, for frontends that want to handle image attachments distinctly.
 - Shop now has a `category` column (added via migration `add_shop_category`). Included in `POST /shops` request body as required.
+- `PATCH /shops/me` accepts `isActive: boolean` to pause/reopen the shop. Reopening (false → true) fans out a `shop_reopened` notification to every follower.
+- `DELETE /shops/me` permanently closes the shop: soft-deletes (`deletedAt = NOW()`) and flips the owner's role to "buyer" in one Prisma `$transaction`. Returns 204; 410 `shop_gone` if already demolished, 404 `no_shop` if user never had one.
+- `POST /shops/:id/follow` and `DELETE /shops/:id/follow` — Phase 4 follow/unfollow. Both idempotent (silent no-ops on duplicate). 400 `self_follow` if trying to follow own shop; 410 `shop_gone` for demolished shops on the POST side.
+- `GET /shops/:id` now uses `optionalAuth`: guests get `isFollowing: null`, authed users get a real boolean. `followerCount` always present.
+- `GET /search?type=shops` items include `followerCount` (via Prisma `_count`).
+- Shop responses (direct fetches only — not nested on products) include: `productsCount`, `followerCount`, `isFollowing`, conditional `ownerName` (only when `showLegalName=true` on `GET /shops/:id`; always on `GET /shops/me`).
+- `POST /conversations` returns 403 `shop_paused` (or 403 `shop_gone`) when the target shop is paused/demolished AND no conversation already exists between the buyer and seller — preserves existing threads.
+- `POST /transactions { productId }` returns 403 `shop_paused` for paused shops UNLESS the buyer has an existing conversation with the seller (then they're paying a prior commitment, allowed). Always 403 `shop_gone` for demolished shops.
+- New notification type: `shop_reopened` — fired to followers when a paused shop is reopened.
 
 **Deploy artifacts:**
 - [`render.yaml`](render.yaml) — Render Blueprint declaring the web service, build/start/migrate commands, health check path (`/health`), and 15 env vars marked `sync: false` (to be filled per environment).
