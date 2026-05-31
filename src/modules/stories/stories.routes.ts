@@ -1,6 +1,6 @@
 import { Router } from "express";
 import multer from "multer";
-import { requireAuth } from "../../middleware/auth.js";
+import { optionalAuth, requireAuth } from "../../middleware/auth.js";
 import { storiesController } from "./stories.controller.js";
 
 const upload = multer({
@@ -10,7 +10,7 @@ const upload = multer({
 
 const router = Router();
 
-router.get("/shops/:id/stories", storiesController.listForShop);
+router.get("/shops/:id/stories", optionalAuth, storiesController.listForShop);
 router.post(
   "/shops/me/stories",
   requireAuth,

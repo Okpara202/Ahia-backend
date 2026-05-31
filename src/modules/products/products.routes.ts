@@ -1,6 +1,6 @@
 import { Router } from "express";
 import multer from "multer";
-import { requireAuth } from "../../middleware/auth.js";
+import { optionalAuth, requireAuth } from "../../middleware/auth.js";
 import { productsController } from "./products.controller.js";
 
 const upload = multer({
@@ -12,8 +12,8 @@ const productImages = upload.array("image_files", 10);
 
 const router = Router();
 
-router.get("/", productsController.list);
-router.get("/:id", productsController.getById);
+router.get("/", optionalAuth, productsController.list);
+router.get("/:id", optionalAuth, productsController.getById);
 
 router.post("/", requireAuth, productImages, productsController.create);
 router.patch("/:id", requireAuth, productImages, productsController.update);

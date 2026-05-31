@@ -27,6 +27,7 @@ import paymentsRoutes from "./modules/payments/payments.routes.js";
 import searchRoutes from "./modules/search/search.routes.js";
 import invoicesRoutes from "./modules/invoices/invoices.routes.js";
 import { productsController } from "./modules/products/products.controller.js";
+import { optionalAuth } from "./middleware/auth.js";
 
 export function createApp() {
   const app = express();
@@ -75,7 +76,7 @@ export function createApp() {
   app.use("/discover", discoverRoutes);
   app.use("/users", usersRoutes);
   app.use("/payments", paymentsRoutes);
-  app.get("/feed", productsController.list);
+  app.get("/feed", optionalAuth, productsController.list);
   app.use(searchRoutes);
   app.use(reviewsRoutes);
   app.use(storiesRoutes);

@@ -41,7 +41,7 @@ router.patch(
 router.delete("/me/banner", requireAuth, shopsController.removeBanner);
 
 router.get("/:id", optionalAuth, shopsController.getById);
-router.get("/:id/products", shopsController.listProducts);
+router.get("/:id/products", optionalAuth, shopsController.listProducts);
 
 router.post("/:id/follow", requireAuth, followsController.follow);
 router.delete("/:id/follow", requireAuth, followsController.unfollow);

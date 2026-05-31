@@ -1,6 +1,6 @@
 import { Router } from "express";
 import multer from "multer";
-import { requireAuth } from "../../middleware/auth.js";
+import { optionalAuth, requireAuth } from "../../middleware/auth.js";
 import { discoverController } from "./discover.controller.js";
 
 const upload = multer({
@@ -15,9 +15,9 @@ const postMedia = upload.fields([
 
 const router = Router();
 
-router.get("/", discoverController.getFeed);
-router.post("/posts/:id/impression", discoverController.impression);
-router.post("/posts/:id/click", discoverController.click);
+router.get("/", optionalAuth, discoverController.getFeed);
+router.post("/posts/:id/impression", optionalAuth, discoverController.impression);
+router.post("/posts/:id/click", optionalAuth, discoverController.click);
 
 router.post("/posts/:id/save", requireAuth, discoverController.save);
 router.post("/posts", requireAuth, postMedia, discoverController.createPost);
