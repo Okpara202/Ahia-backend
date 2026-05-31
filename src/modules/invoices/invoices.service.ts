@@ -218,28 +218,45 @@ export const invoicesService = {
     });
     if (!buyer) throw new NotFoundError("User");
 
-    const reference = invoice.paystackRef ?? generateReference();
+    // Always generate a fresh reference. Paystack rejects re-initialising with
+    // an already-known reference (regardless of whether the prior attempt
+    // succeeded, was declined, or was abandoned), so reusing the stored one
+    // breaks retries after a decline. The webhook still finds the invoice via
+    // metadata.invoiceId, so any prior reference is harmless on Paystack's side.
+    const reference = generateReference();
     const amountInKobo = Math.round(Number(invoice.totalAmount) * 100);
 
-    if (!invoice.paystackRef) {
-      await prisma.invoice.update({
-        where: { id: invoiceId },
-        data: { paystackRef: reference },
-      });
-    }
-
-    const init = await paystack.initTransaction({
-      email: buyer.email,
-      amountInKobo,
-      reference,
-      metadata: {
-        type: "invoice",
-        invoiceId,
-        buyerId: userId,
-        sellerId: invoice.sellerId,
-      },
-      callbackUrl: input.callbackUrl,
+    await prisma.invoice.update({
+      where: { id: invoiceId },
+      data: { paystackRef: reference },
     });
+
+    let init;
+    try {
+      init = await paystack.initTransaction({
+        email: buyer.email,
+        amountInKobo,
+        reference,
+        metadata: {
+          type: "invoice",
+          invoiceId,
+          buyerId: userId,
+          sellerId: invoice.sellerId,
+        },
+        callbackUrl: input.callbackUrl,
+      });
+    } catch (err) {
+      logger.error("paystack: initTransaction failed", {
+        invoiceId,
+        reference,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      throw new AppError(
+        502,
+        "PAYSTACK_INIT_FAILED",
+        "Couldn't reach Paystack right now. Try again in a moment.",
+      );
+    }
 
     return {
       authorizationUrl: init.authorization_url,
