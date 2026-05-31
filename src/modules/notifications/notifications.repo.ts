@@ -11,6 +11,7 @@ export const notificationsRepo = {
     return prisma.notification.findMany({
       where: {
         userId: args.userId,
+        archivedAt: null,
         ...(args.unreadOnly ? { readAt: null } : {}),
       },
       orderBy: { createdAt: "desc" },
@@ -22,7 +23,7 @@ export const notificationsRepo = {
 
   countUnread(userId: string) {
     return prisma.notification.count({
-      where: { userId, readAt: null },
+      where: { userId, archivedAt: null, readAt: null },
     });
   },
 
@@ -39,8 +40,15 @@ export const notificationsRepo = {
 
   markAllRead(userId: string) {
     return prisma.notification.updateMany({
-      where: { userId, readAt: null },
+      where: { userId, readAt: null, archivedAt: null },
       data: { readAt: new Date() },
+    });
+  },
+
+  archive(id: string, userId: string) {
+    return prisma.notification.updateMany({
+      where: { id, userId, archivedAt: null },
+      data: { archivedAt: new Date() },
     });
   },
 };

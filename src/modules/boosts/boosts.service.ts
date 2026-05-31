@@ -9,6 +9,7 @@ import {
 import { paystack } from "../../integrations/paystack.js";
 import { broadcastToUser } from "../../realtime/socket.js";
 import { notificationsService } from "../notifications/notifications.service.js";
+import { notificationRenderers } from "../notifications/notifications.renderer.js";
 import { BOOST_PLANS, getPlan, planEndDate } from "./boosts.plans.js";
 import { boostsRepo } from "./boosts.repo.js";
 import type { BuyBoostInput } from "./boosts.schemas.js";
@@ -131,12 +132,19 @@ export const boostsService = {
     });
 
     broadcastToUser(userId, "boost:purchased", { boost });
-    await notificationsService.createForUser(userId, "boost_purchased", {
-      boostId: boost.id,
-      productId,
-      plan: planId,
-      endsAt: endsAt.toISOString(),
+    const product = await prisma.product.findUnique({
+      where: { id: productId },
+      select: { name: true },
     });
+    await notificationsService.createForUser(
+      userId,
+      notificationRenderers.boostPurchased({
+        productName: product?.name ?? "Your product",
+        endsAt,
+        productId,
+        boostId: boost.id,
+      }),
+    );
 
     return boost;
   },

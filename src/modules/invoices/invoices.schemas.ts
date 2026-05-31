@@ -7,6 +7,8 @@ const productLineSchema = z.object({
   kind: z.literal("product"),
   productId: z.string().uuid(),
   quantity: z.coerce.number().int().min(1).max(99).default(1),
+  unitPrice: z.coerce.number().min(0).max(10_000_000).optional(),
+  name: z.string().min(1).max(200).optional(),
 });
 
 const customLineSchema = z.object({

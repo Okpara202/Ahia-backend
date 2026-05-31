@@ -3,6 +3,7 @@ import { AppError, ConflictError, NotFoundError } from "../../errors.js";
 import { uploadImageBuffer } from "../../integrations/cloudinary.js";
 import { followsRepo } from "../follows/follows.repo.js";
 import { notificationsService } from "../notifications/notifications.service.js";
+import { notificationRenderers } from "../notifications/notifications.renderer.js";
 import { shopsRepo } from "./shops.repo.js";
 import type {
   CreateShopInput,
@@ -121,13 +122,14 @@ export const shopsService = {
     const reopened = shop.isActive === false && updated.isActive === true;
     if (reopened) {
       const followerIds = await followsRepo.followerIds(updated.id);
+      const rendered = notificationRenderers.shopReopened({
+        shopName: updated.name,
+        shopHandle: updated.handle,
+        shopId: updated.id,
+      });
       await Promise.all(
         followerIds.map((followerId) =>
-          notificationsService.createForUser(followerId, "shop_reopened", {
-            shopId: updated.id,
-            shopName: updated.name,
-            shopHandle: updated.handle,
-          }),
+          notificationsService.createForUser(followerId, rendered),
         ),
       );
     }

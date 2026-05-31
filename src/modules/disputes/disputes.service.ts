@@ -2,6 +2,7 @@ import { prisma } from "../../config/db.js";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../../errors.js";
 import { broadcastToUser } from "../../realtime/socket.js";
 import { notificationsService } from "../notifications/notifications.service.js";
+import { notificationRenderers } from "../notifications/notifications.renderer.js";
 import { recomputeInvoiceStatus } from "../invoices/invoices.repo.js";
 import { disputesRepo } from "./disputes.repo.js";
 import type { ListDisputesQuery, ResolveDisputeInput } from "./disputes.schemas.js";
@@ -76,19 +77,35 @@ export const disputesService = {
     broadcastToUser(invoice.buyerId, event, payload);
     broadcastToUser(invoice.sellerId, event, payload);
 
+    const lineRow = dispute.invoiceLine;
+    const amount = Number(lineRow.unitPrice) * lineRow.quantity;
     await Promise.all([
-      notificationsService.createForUser(invoice.buyerId, "dispute_resolved", {
-        disputeId: id,
-        lineId,
-        invoiceId: invoice.id,
-        resolution: input.resolution,
-      }),
-      notificationsService.createForUser(invoice.sellerId, "dispute_resolved", {
-        disputeId: id,
-        lineId,
-        invoiceId: invoice.id,
-        resolution: input.resolution,
-      }),
+      notificationsService.createForUser(
+        invoice.buyerId,
+        notificationRenderers.disputeResolved({
+          recipient: "buyer",
+          lineName: lineRow.name,
+          amount,
+          conversationId: invoice.conversationId,
+          invoiceId: invoice.id,
+          lineId,
+          disputeId: id,
+          resolution: input.resolution,
+        }),
+      ),
+      notificationsService.createForUser(
+        invoice.sellerId,
+        notificationRenderers.disputeResolved({
+          recipient: "seller",
+          lineName: lineRow.name,
+          amount,
+          conversationId: invoice.conversationId,
+          invoiceId: invoice.id,
+          lineId,
+          disputeId: id,
+          resolution: input.resolution,
+        }),
+      ),
     ]);
 
     return disputesRepo.findById(id);

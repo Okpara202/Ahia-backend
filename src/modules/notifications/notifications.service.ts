@@ -3,6 +3,19 @@ import { notificationsRepo } from "./notifications.repo.js";
 import type { ListNotificationsQuery } from "./notifications.schemas.js";
 import type { Prisma } from "@prisma/client";
 
+type RenderedNotification = {
+  type: string;
+  title: string;
+  body: string;
+  link: string | null;
+  payload: Record<string, unknown>;
+};
+
+function clamp(value: string | null, max: number): string | null {
+  if (value === null) return null;
+  return value.length > max ? value.slice(0, max - 1) + "…" : value;
+}
+
 export const notificationsService = {
   async list(userId: string, query: ListNotificationsQuery) {
     const rows = await notificationsRepo.listForUser({
@@ -26,11 +39,18 @@ export const notificationsService = {
     await notificationsRepo.markAllRead(userId);
   },
 
-  async createForUser(userId: string, type: string, payload: Prisma.InputJsonValue) {
+  async archive(userId: string, id: string) {
+    await notificationsRepo.archive(id, userId);
+  },
+
+  async createForUser(userId: string, rendered: RenderedNotification) {
     const notification = await notificationsRepo.create({
       user: { connect: { id: userId } },
-      type,
-      payload,
+      type: rendered.type,
+      title: clamp(rendered.title, 120),
+      body: clamp(rendered.body, 240),
+      link: rendered.link,
+      payload: rendered.payload as Prisma.InputJsonValue,
     });
     broadcastToUser(userId, "notification:new", { notification });
     return notification;

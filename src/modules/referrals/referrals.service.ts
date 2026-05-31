@@ -4,6 +4,7 @@ import {
   NotFoundError,
 } from "../../errors.js";
 import { notificationsService } from "../notifications/notifications.service.js";
+import { notificationRenderers } from "../notifications/notifications.renderer.js";
 import { referralsRepo } from "./referrals.repo.js";
 
 export const referralsService = {
@@ -53,13 +54,20 @@ export const referralsService = {
   async markFirstTransaction(inviteeId: string) {
     const pending = await referralsRepo.findPendingByInvitee(inviteeId);
     if (pending.length === 0) return;
+    const invitee = await prisma.user.findUnique({
+      where: { id: inviteeId },
+      select: { name: true },
+    });
     for (const r of pending) {
       await referralsRepo.markCompleted(r.id);
-      await notificationsService.createForUser(r.referrerId, "referral_completed", {
-        referralId: r.id,
-        inviteeId,
-        rewardNaira: r.rewardNaira,
-      });
+      await notificationsService.createForUser(
+        r.referrerId,
+        notificationRenderers.referralCompleted({
+          inviteeName: invitee?.name ?? "Your invitee",
+          rewardNaira: r.rewardNaira,
+          referralId: r.id,
+        }),
+      );
     }
   },
 };

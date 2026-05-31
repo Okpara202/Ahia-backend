@@ -9,6 +9,10 @@ import { conversationsRepo } from "../conversations/conversations.repo.js";
 import { formatMessageOut } from "../conversations/conversations.mapper.js";
 import { notificationsService } from "../notifications/notifications.service.js";
 import {
+  notificationRenderers,
+  summarizeLines,
+} from "../notifications/notifications.renderer.js";
+import {
   invoicesRepo,
   recomputeInvoiceStatus,
 } from "./invoices.repo.js";
@@ -63,12 +67,13 @@ async function expandLines(
           "You can only bill for your own products.",
         );
       }
-      const unitPrice = Number(product.price);
+      const unitPrice = raw.unitPrice !== undefined ? raw.unitPrice : Number(product.price);
+      const name = raw.name !== undefined ? raw.name : product.name;
       const lineTotal = unitPrice * raw.quantity;
       lines.push({
         kind: "product",
         productId: product.id,
-        name: product.name,
+        name,
         quantity: raw.quantity,
         unitPrice,
         position: i,
@@ -158,11 +163,20 @@ export const invoicesService = {
     });
     broadcastToUser(convo.buyerId, "message:new", { conversationId, message: out });
 
-    await notificationsService.createForUser(convo.buyerId, "invoice_received", {
-      invoiceId: invoice.id,
-      conversationId,
-      totalAmount: total,
+    const seller = await prisma.user.findUnique({
+      where: { id: convo.sellerId },
+      select: { name: true },
     });
+    await notificationsService.createForUser(
+      convo.buyerId,
+      notificationRenderers.invoiceReceived({
+        sellerName: seller?.name ?? "Seller",
+        itemSummary: summarizeLines(lines.map((l) => ({ name: l.name, kind: l.kind }))),
+        total,
+        conversationId,
+        invoiceId: invoice.id,
+      }),
+    );
 
     return out;
   },
@@ -286,15 +300,28 @@ export const invoicesService = {
       paidAt: updated.paidAt?.toISOString(),
     });
 
+    const buyer = await prisma.user.findUnique({
+      where: { id: existing.buyerId },
+      select: { name: true },
+    });
     await Promise.all([
-      notificationsService.createForUser(existing.buyerId, "invoice_paid", {
-        invoiceId,
-        amount: Number(existing.totalAmount),
-      }),
-      notificationsService.createForUser(existing.sellerId, "invoice_received_payment", {
-        invoiceId,
-        amount: Number(existing.totalAmount),
-      }),
+      notificationsService.createForUser(
+        existing.buyerId,
+        notificationRenderers.invoicePaid({
+          total: Number(existing.totalAmount),
+          conversationId: existing.conversationId,
+          invoiceId,
+        }),
+      ),
+      notificationsService.createForUser(
+        existing.sellerId,
+        notificationRenderers.invoiceReceivedPayment({
+          buyerName: buyer?.name ?? "Buyer",
+          total: Number(existing.totalAmount),
+          conversationId: existing.conversationId,
+          invoiceId,
+        }),
+      ),
     ]);
 
     return updated;
@@ -326,11 +353,21 @@ export const invoicesService = {
       invoiceStatus,
     });
 
-    await notificationsService.createForUser(invoice.sellerId, "invoice_line_released", {
-      invoiceId: invoice.id,
-      lineId,
-      amount: Number(line.unitPrice) * line.quantity,
+    const buyerForConfirm = await prisma.user.findUnique({
+      where: { id: invoice.buyerId },
+      select: { name: true },
     });
+    await notificationsService.createForUser(
+      invoice.sellerId,
+      notificationRenderers.invoiceLineReleased({
+        buyerName: buyerForConfirm?.name ?? "Buyer",
+        lineName: line.name,
+        amount: Number(line.unitPrice) * line.quantity,
+        conversationId: invoice.conversationId,
+        invoiceId: invoice.id,
+        lineId,
+      }),
+    );
 
     return invoicesRepo.findLine(lineId);
   },
@@ -369,18 +406,22 @@ export const invoicesService = {
       disputeId: dispute.id,
     });
 
-    await Promise.all([
-      notificationsService.createForUser(invoice.sellerId, "invoice_line_disputed", {
+    const buyerForDispute = await prisma.user.findUnique({
+      where: { id: invoice.buyerId },
+      select: { name: true },
+    });
+    await notificationsService.createForUser(
+      invoice.sellerId,
+      notificationRenderers.invoiceLineDisputed({
+        buyerName: buyerForDispute?.name ?? "Buyer",
+        lineName: line.name,
+        amount: Number(line.unitPrice) * line.quantity,
+        conversationId: invoice.conversationId,
         invoiceId: invoice.id,
         lineId,
         disputeId: dispute.id,
       }),
-      notificationsService.createForUser(invoice.buyerId, "invoice_line_disputed", {
-        invoiceId: invoice.id,
-        lineId,
-        disputeId: dispute.id,
-      }),
-    ]);
+    );
 
     return { dispute, line: await invoicesRepo.findLine(lineId) };
   },
@@ -419,14 +460,23 @@ export const invoicesService = {
       extensionReason: input.reason,
     });
 
-    await notificationsService.createForUser(invoice.sellerId, "invoice_line_extended", {
-      invoiceId: invoice.id,
-      lineId,
-      lineName: line.name,
-      amount: Number(line.unitPrice) * line.quantity,
-      autoReleaseAt: newAutoReleaseAt.toISOString(),
-      extensionReason: input.reason,
+    const buyerForExtend = await prisma.user.findUnique({
+      where: { id: invoice.buyerId },
+      select: { name: true },
     });
+    await notificationsService.createForUser(
+      invoice.sellerId,
+      notificationRenderers.invoiceLineExtended({
+        buyerName: buyerForExtend?.name ?? "Buyer",
+        lineName: line.name,
+        amount: Number(line.unitPrice) * line.quantity,
+        conversationId: invoice.conversationId,
+        invoiceId: invoice.id,
+        lineId,
+        autoReleaseAt: newAutoReleaseAt.toISOString(),
+        extensionReason: input.reason,
+      }),
+    );
 
     return invoicesRepo.findLine(lineId);
   },
@@ -447,6 +497,19 @@ export const invoicesBackground = {
       invoiceStatus,
       autoReleased: true,
     });
+
+    await notificationsService.createForUser(
+      line.invoice.sellerId,
+      notificationRenderers.invoiceLineReleased({
+        buyerName: "Auto",
+        lineName: line.name,
+        amount: Number(line.unitPrice) * line.quantity,
+        conversationId: line.invoice.conversationId,
+        invoiceId: line.invoice.id,
+        lineId,
+        autoReleased: true,
+      }),
+    );
   },
 };
 

@@ -14,6 +14,7 @@ import { paystack } from "../../integrations/paystack.js";
 import { broadcastToUser } from "../../realtime/socket.js";
 import { getPlan, planEndDate } from "../boosts/boosts.plans.js";
 import { notificationsService } from "../notifications/notifications.service.js";
+import { notificationRenderers } from "../notifications/notifications.renderer.js";
 import { wishlistRepo } from "../wishlist/wishlist.repo.js";
 import { discoverRepo } from "./discover.repo.js";
 import type {
@@ -266,13 +267,7 @@ export const discoverService = {
     broadcastToUser(userId, "discover:campaign_started", { campaign });
     await notificationsService.createForUser(
       userId,
-      "discover_campaign_started",
-      {
-        campaignId: campaign.id,
-        postId,
-        plan: planId,
-        endsAt: endsAt.toISOString(),
-      },
+      notificationRenderers.discoverCampaignStarted({ campaignId: campaign.id }),
     );
 
     return campaign;
