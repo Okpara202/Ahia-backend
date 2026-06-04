@@ -16,6 +16,7 @@ import { redis } from "../../integrations/redis.js";
 import { followsRepo } from "../follows/follows.repo.js";
 import { notificationsService } from "../notifications/notifications.service.js";
 import { notificationRenderers } from "../notifications/notifications.renderer.js";
+import { assertFileKind } from "../../middleware/mimeGuard.js";
 import { storiesRepo } from "./stories.repo.js";
 import type { CreateStoryInput } from "./stories.schemas.js";
 import type { Prisma, Story } from "@prisma/client";
@@ -130,6 +131,8 @@ export const storiesService = {
     if (!args.imageBuffer && !args.videoBuffer) {
       throw new ValidationError("Media is required", { media: "Required" });
     }
+    if (args.imageBuffer) assertFileKind(args.imageBuffer, "image", "image");
+    if (args.videoBuffer) assertFileKind(args.videoBuffer, "video", "video");
 
     const shop = await prisma.shop.findFirst({
       where: { ownerId: userId, deletedAt: null },

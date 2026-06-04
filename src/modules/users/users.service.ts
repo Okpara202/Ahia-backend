@@ -1,6 +1,7 @@
 import { prisma } from "../../config/db.js";
 import { NotFoundError } from "../../errors.js";
 import { uploadImageBuffer } from "../../integrations/cloudinary.js";
+import { assertFileKind } from "../../middleware/mimeGuard.js";
 import type { UpdateProfileInput, UpdateRoleInput } from "./users.schemas.js";
 
 function publicUser<T extends { passwordHash: string | null }>(user: T) {
@@ -32,6 +33,7 @@ export const usersService = {
   },
 
   async uploadAvatar(userId: string, fileBuffer: Buffer) {
+    assertFileKind(fileBuffer, "image", "avatar_file");
     const avatarUrl = await uploadImageBuffer(fileBuffer, {
       folder: `ahia/avatars/users/${userId}`,
       publicId: "avatar",

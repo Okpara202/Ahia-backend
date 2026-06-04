@@ -87,7 +87,19 @@ export const disputesService = {
     const lineStatus = input.resolution === "released_to_seller" ? "released" : "refunded";
 
     const lineRow = dispute.invoiceLine;
+    let alreadyResolved = false;
     await prisma.$transaction(async (tx) => {
+      // Race guard: re-read the line inside the tx. If the buyer confirmed
+      // (status flipped to 'released') in the gap between admin opening the
+      // dispute and clicking resolve, we'd double-credit. Same for refund.
+      const fresh = await tx.invoiceLine.findUnique({
+        where: { id: lineId },
+        select: { status: true },
+      });
+      if (!fresh || fresh.status !== "pending") {
+        alreadyResolved = true;
+        return;
+      }
       await tx.dispute.update({
         where: { id },
         data: {
@@ -110,6 +122,11 @@ export const disputesService = {
         }
       }
     });
+    if (alreadyResolved) {
+      throw new BadRequestError(
+        "This line was already resolved by another action — no change made",
+      );
+    }
 
     if (lineStatus === "refunded") {
       void refundLineToBuyer(invoice.id, lineRow.id, Number(lineRow.unitPrice) * lineRow.quantity);

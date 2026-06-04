@@ -8,6 +8,7 @@ import { startEscrowAutoRelease, stopEscrowAutoRelease } from "./jobs/escrowAuto
 import { startBoostExpiry, stopBoostExpiry } from "./jobs/boostExpiry.js";
 import { startStoryExpiry, stopStoryExpiry } from "./jobs/storyExpiry.js";
 import { startPayoutSweep, stopPayoutSweep } from "./jobs/payoutSweep.js";
+import { startPaystackRecovery, stopPaystackRecovery } from "./jobs/paystackRecovery.js";
 
 const app = createApp();
 const httpServer = createServer(app);
@@ -23,6 +24,7 @@ const server = httpServer.listen(env.PORT, () => {
   startBoostExpiry();
   startStoryExpiry();
   startPayoutSweep();
+  startPaystackRecovery();
 });
 
 const shutdown = (signal: string) => {
@@ -31,6 +33,7 @@ const shutdown = (signal: string) => {
   stopBoostExpiry();
   stopStoryExpiry();
   stopPayoutSweep();
+  stopPaystackRecovery();
   server.close(() => {
     void redis?.quit().finally(() => process.exit(0));
   });

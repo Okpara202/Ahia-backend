@@ -137,6 +137,27 @@ export const paystack = {
     };
   },
 
+  async verifyTransaction(reference: string): Promise<{
+    status: "success" | "failed" | "abandoned" | "pending" | string;
+    amount: number;
+    metadata?: { type?: string; [k: string]: unknown };
+    raw: unknown;
+  }> {
+    const res = await client.get<{
+      data: {
+        status: string;
+        amount: number;
+        metadata?: { type?: string; [k: string]: unknown };
+      };
+    }>(`/transaction/verify/${encodeURIComponent(reference)}`);
+    return {
+      status: res.data.data.status,
+      amount: res.data.data.amount,
+      metadata: res.data.data.metadata,
+      raw: res.data,
+    };
+  },
+
   verifyWebhookSignature(rawBody: Buffer | string, signature: string): boolean {
     const computed = crypto
       .createHmac("sha512", requireKey())

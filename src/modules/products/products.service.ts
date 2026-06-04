@@ -3,6 +3,7 @@ import {
   uploadImageBuffer,
   uploadImageFromUrl,
 } from "../../integrations/cloudinary.js";
+import { assertFileKind } from "../../middleware/mimeGuard.js";
 import { shopsRepo } from "../shops/shops.repo.js";
 import { productsRepo } from "./products.repo.js";
 import type {
@@ -28,6 +29,9 @@ async function resolveImageUrls(
   imageUrls: string[],
 ): Promise<string[]> {
   const folder = `ahia/products/${shopId}`;
+  for (const f of files) {
+    assertFileKind(f.buffer, "image", "image_files");
+  }
   const fromFiles = await Promise.all(
     files.map((f) => uploadImageBuffer(f.buffer, { folder })),
   );

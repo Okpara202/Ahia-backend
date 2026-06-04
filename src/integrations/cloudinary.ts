@@ -108,6 +108,23 @@ export function uploadStoryVideoBuffer(
   });
 }
 
+export async function destroyFolder(folderPrefix: string): Promise<void> {
+  if (!isConfigured) {
+    logger.warn("cloudinary: destroyFolder skipped — not configured", { folderPrefix });
+    return;
+  }
+  try {
+    await cloudinary.api.delete_resources_by_prefix(folderPrefix, { resource_type: "image" });
+    await cloudinary.api.delete_resources_by_prefix(folderPrefix, { resource_type: "video" });
+    await cloudinary.api.delete_folder(folderPrefix).catch(() => undefined);
+  } catch (err) {
+    logger.error("cloudinary: destroyFolder failed", {
+      folderPrefix,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 export async function destroyAsset(
   publicId: string,
   resourceType: "image" | "video",

@@ -176,6 +176,21 @@ export const invoicesService = {
       throw new AppError(403, "not_seller", "Only the seller can create invoices.");
     }
 
+    // Spam guard: cap invoices per conversation to 10 in the trailing 1 hour.
+    const recentCount = await prisma.invoice.count({
+      where: {
+        conversationId,
+        createdAt: { gte: new Date(Date.now() - 60 * 60 * 1000) },
+      },
+    });
+    if (recentCount >= 10) {
+      throw new AppError(
+        429,
+        "invoice_rate_limit",
+        "You've sent a lot of invoices recently. Please slow down and try again in an hour.",
+      );
+    }
+
     const { lines, total } = await expandLines(userId, input.lines);
     if (total <= 0) {
       throw new AppError(400, "zero_total", "Invoice total must be greater than zero.");

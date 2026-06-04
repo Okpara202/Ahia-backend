@@ -1,6 +1,8 @@
 import { prisma } from "../../config/db.js";
 import { AppError, ConflictError, NotFoundError } from "../../errors.js";
-import { uploadImageBuffer } from "../../integrations/cloudinary.js";
+import { destroyFolder, uploadImageBuffer } from "../../integrations/cloudinary.js";
+import { logger } from "../../config/logger.js";
+import { assertFileKind } from "../../middleware/mimeGuard.js";
 import { followsRepo } from "../follows/follows.repo.js";
 import { notificationsService } from "../notifications/notifications.service.js";
 import { notificationRenderers } from "../notifications/notifications.renderer.js";
@@ -20,10 +22,12 @@ type ViewContext = {
 };
 
 async function uploadAvatar(userId: string, buf: Buffer) {
+  assertFileKind(buf, "image", "avatar_file");
   return uploadImageBuffer(buf, { folder: `ahia/shops/${userId}`, publicId: "avatar" });
 }
 
 async function uploadBanner(userId: string, buf: Buffer) {
+  assertFileKind(buf, "image", "banner_file");
   return uploadImageBuffer(buf, { folder: `ahia/shops/${userId}`, publicId: "banner" });
 }
 
@@ -195,6 +199,24 @@ export const shopsService = {
         data: { role: "buyer" },
       }),
     ]);
+
+    // Best-effort Cloudinary cleanup of the shop's media. Fire-and-forget;
+    // if it fails, assets stay (storage tax) but the demolish still completes.
+    void (async () => {
+      try {
+        await Promise.all([
+          destroyFolder(`ahia/shops/${userId}`), // avatar + banner
+          destroyFolder(`ahia/products/${existing.id}`),
+          destroyFolder(`ahia/stories/${existing.id}`),
+        ]);
+        logger.info("shops: cloudinary cleanup complete", { shopId: existing.id });
+      } catch (err) {
+        logger.error("shops: cloudinary cleanup failed", {
+          shopId: existing.id,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    })();
   },
 
   async listProducts(shopId: string, query: ListShopProductsQuery) {

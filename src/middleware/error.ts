@@ -150,11 +150,16 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next: NextFunc
   }
 
   logger.error("Unhandled error", {
+    reqId: req.id,
     path: req.originalUrl,
     method: req.method,
     err: err instanceof Error ? { message: err.message, stack: err.stack } : err,
   });
   res.status(500).json({
-    error: { code: "INTERNAL_ERROR", message: "Something went wrong" },
+    error: {
+      code: "INTERNAL_ERROR",
+      message: "Something went wrong",
+      requestId: req.id,
+    },
   });
 };

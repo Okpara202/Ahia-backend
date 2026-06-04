@@ -7,6 +7,7 @@ import { env } from "./config/env.js";
 import { errorHandler, notFound } from "./middleware/error.js";
 import { generalLimiter } from "./middleware/rateLimit.js";
 import { requestLogger } from "./middleware/requestLogger.js";
+import { requestId } from "./middleware/requestId.js";
 import authRoutes from "./modules/auth/auth.routes.js";
 import googleOauthRoutes from "./modules/auth/oauth/google.js";
 import productsRoutes from "./modules/products/products.routes.js";
@@ -56,6 +57,7 @@ export function createApp() {
     }),
   );
   app.use(cookieParser());
+  app.use(requestId);
   app.use(requestLogger);
 
   // Webhooks mounted BEFORE express.json so handlers can read the raw body
