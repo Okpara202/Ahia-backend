@@ -4,6 +4,7 @@ import type { Response, CookieOptions } from "express";
 import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
 import { ConflictError, UnauthorizedError } from "../../errors.js";
+import { prisma } from "../../config/db.js";
 import { authRepo } from "./auth.repo.js";
 import type { LoginInput, SignupInput } from "./auth.schemas.js";
 import type { User } from "@prisma/client";
@@ -73,7 +74,19 @@ export const authService = {
   async me(userId: string) {
     const user = await authRepo.findById(userId);
     if (!user) throw new UnauthorizedError("Session no longer valid");
-    return publicUser(user);
+    const [followingCount, payoutAccount] = await Promise.all([
+      prisma.follow.count({ where: { userId } }),
+      prisma.payoutAccount.findUnique({
+        where: { userId },
+        select: { paystackRecipientCode: true },
+      }),
+    ]);
+    return {
+      ...publicUser(user),
+      followingCount,
+      hasPayoutAccount: !!payoutAccount?.paystackRecipientCode,
+      owedBalance: user.owedBalance,
+    };
   },
 
   cookieOptions,

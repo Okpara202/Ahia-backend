@@ -45,6 +45,21 @@ export function initSocket(httpServer: HttpServer) {
     logger.info("socket: connected", { userId: user.id, socketId: socket.id });
 
     void flushDeliveredOnConnect(user.id);
+    void markPresenceOnConnect(user.id);
+
+    socket.on("heartbeat", async () => {
+      try {
+        const { presenceService } = await import(
+          "../modules/presence/presence.service.js"
+        );
+        await presenceService.refreshOnline(user.id);
+      } catch (err) {
+        logger.warn("socket: heartbeat failed", {
+          userId: user.id,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    });
 
     socket.on("typing:start", async (payload: { conversationId?: string }) => {
       if (!payload?.conversationId) return;
@@ -82,6 +97,7 @@ export function initSocket(httpServer: HttpServer) {
         socketId: socket.id,
         reason,
       });
+      void markPresenceOnDisconnect(user.id);
     });
   });
 
@@ -107,6 +123,48 @@ async function flushDeliveredOnConnect(userId: string) {
     await conversationsService.flushDeliveredFor(userId);
   } catch (err) {
     logger.warn("socket: flushDeliveredFor failed", {
+      userId,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+async function markPresenceOnConnect(userId: string) {
+  try {
+    const [{ presenceService }, { presenceAudience }] = await Promise.all([
+      import("../modules/presence/presence.service.js"),
+      import("../modules/presence/presence.audience.js"),
+    ]);
+    const { wasOffline } = await presenceService.markOnline(userId);
+    if (wasOffline) {
+      const ids = await presenceAudience.audienceFor(userId);
+      const payload = { userId, online: true };
+      for (const id of ids) broadcastToUser(id, "presence:changed", payload);
+    }
+  } catch (err) {
+    logger.warn("socket: markPresenceOnConnect failed", {
+      userId,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+async function markPresenceOnDisconnect(userId: string) {
+  try {
+    const [{ presenceService }, { presenceAudience }] = await Promise.all([
+      import("../modules/presence/presence.service.js"),
+      import("../modules/presence/presence.audience.js"),
+    ]);
+    await presenceService.markOffline(userId);
+    const ids = await presenceAudience.audienceFor(userId);
+    const payload = {
+      userId,
+      online: false,
+      lastSeenAt: new Date().toISOString(),
+    };
+    for (const id of ids) broadcastToUser(id, "presence:changed", payload);
+  } catch (err) {
+    logger.warn("socket: markPresenceOnDisconnect failed", {
       userId,
       message: err instanceof Error ? err.message : String(err),
     });

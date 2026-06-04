@@ -92,6 +92,20 @@ export function formatMessageOut(message: MessageRow, viewerId: string) {
       }
     : null;
 
+  const storyContext = message.storyContextStoryId
+    ? {
+        storyId: message.storyContextStoryId,
+        mediaUrl: message.storyContextMediaUrl ?? "",
+        mediaType: message.storyContextMediaType ?? "image",
+        ...(message.storyContextPosterUrl
+          ? { posterUrl: message.storyContextPosterUrl }
+          : {}),
+        ...(message.storyContextCaption
+          ? { caption: message.storyContextCaption }
+          : {}),
+      }
+    : undefined;
+
   const base = {
     id: message.id,
     conversationId: message.conversationId,
@@ -101,6 +115,7 @@ export function formatMessageOut(message: MessageRow, viewerId: string) {
     createdAt: message.createdAt.toISOString(),
     editedAt: message.editedAt ? message.editedAt.toISOString() : null,
     contextProduct,
+    ...(storyContext ? { storyContext } : {}),
     deliveredAt,
     readAt,
     reactions: message.reactions.map((r) => ({ userId: r.userId, emoji: r.emoji })),

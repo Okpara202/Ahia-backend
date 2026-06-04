@@ -1,11 +1,21 @@
 import { Router } from "express";
-import { requireAuth } from "../../middleware/auth.js";
+import { optionalAuth, requireAuth } from "../../middleware/auth.js";
 import { boostsController } from "./boosts.controller.js";
 
 const router = Router();
 
-router.get("/plans", boostsController.listPlans);
-router.post("/", requireAuth, boostsController.buy);
-router.get("/me", requireAuth, boostsController.listMine);
+router.get("/boosts/plans", boostsController.listPlans);
+router.post("/boosts", requireAuth, boostsController.buy);
+router.get("/boosts/me", requireAuth, boostsController.listMine);
+router.get(
+  "/products/:id/boost",
+  optionalAuth,
+  boostsController.getProductBoost,
+);
+router.get(
+  "/shops/:id/boosts",
+  optionalAuth,
+  boostsController.listShopBoosts,
+);
 
 export default router;

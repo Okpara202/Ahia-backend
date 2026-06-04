@@ -19,6 +19,85 @@ import {
 
 const EDIT_WINDOW_MS = 15 * 60 * 1000;
 
+const COLD_DM_DAILY_LIMIT = 50;
+
+async function startAsBuyer(buyerId: string, sellerId: string) {
+  if (buyerId === sellerId) {
+    throw new AppError(400, "self_conversation", "You can't message your own shop.");
+  }
+  const existing = await conversationsRepo.findByPair(buyerId, sellerId);
+  if (existing) return buildConversationResponse(existing, [], buyerId);
+
+  const shop = await resolveShopAndSeller(sellerId);
+  if (shop.deletedAt) {
+    throw new AppError(403, "shop_gone", "This shop is no longer available.");
+  }
+  if (!shop.isActive) {
+    throw new AppError(
+      403,
+      "shop_paused",
+      "This seller is on a break and isn't taking new orders right now.",
+    );
+  }
+  const convo = await conversationsRepo.create({ buyerId, sellerId, shopId: shop.id });
+  return buildConversationResponse(convo, [], buyerId);
+}
+
+async function startAsSeller(sellerId: string, buyerId: string) {
+  if (buyerId === sellerId) {
+    throw new AppError(400, "self_conversation", "You can't message yourself.");
+  }
+  const existing = await conversationsRepo.findByPair(buyerId, sellerId);
+  if (existing) return buildConversationResponse(existing, [], sellerId);
+
+  const sellerShop = await prisma.shop.findFirst({
+    where: { ownerId: sellerId, deletedAt: null },
+    select: { id: true, isActive: true },
+  });
+  if (!sellerShop) {
+    throw new AppError(
+      403,
+      "not_seller",
+      "You must have an active shop to start a conversation.",
+    );
+  }
+
+  const buyer = await prisma.user.findUnique({
+    where: { id: buyerId },
+    select: { id: true, allowsColdDMs: true },
+  });
+  if (!buyer) throw new NotFoundError("User");
+  if (!buyer.allowsColdDMs) {
+    throw new AppError(
+      403,
+      "buyer_blocks_cold_dms",
+      "This user doesn't accept messages from sellers they haven't bought from.",
+    );
+  }
+
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const recentColdConversations = await prisma.conversation.count({
+    where: {
+      sellerId,
+      createdAt: { gte: since },
+    },
+  });
+  if (recentColdConversations >= COLD_DM_DAILY_LIMIT) {
+    throw new AppError(
+      429,
+      "cold_dm_limit",
+      "You've reached the daily limit for new conversations.",
+    );
+  }
+
+  const convo = await conversationsRepo.create({
+    buyerId,
+    sellerId,
+    shopId: sellerShop.id,
+  });
+  return buildConversationResponse(convo, [], sellerId);
+}
+
 async function resolveShopAndSeller(sellerId: string) {
   const shop = await prisma.shop.findFirst({
     where: { ownerId: sellerId, deletedAt: null },
@@ -76,34 +155,13 @@ async function persistMessage(args: {
 
 export const conversationsService = {
   async start(userId: string, input: StartConversationInput) {
-    if (userId === input.sellerId) {
-      throw new AppError(400, "self_conversation", "You can't message your own shop.");
+    if (input.sellerId) {
+      return startAsBuyer(userId, input.sellerId);
     }
-
-    const existing = await conversationsRepo.findByPair(userId, input.sellerId);
-    if (existing) {
-      return buildConversationResponse(existing, [], userId);
+    if (input.buyerId) {
+      return startAsSeller(userId, input.buyerId);
     }
-
-    const shop = await resolveShopAndSeller(input.sellerId);
-    if (shop.deletedAt) {
-      throw new AppError(403, "shop_gone", "This shop is no longer available.");
-    }
-    if (!shop.isActive) {
-      throw new AppError(
-        403,
-        "shop_paused",
-        "This seller is on a break and isn't taking new orders right now.",
-      );
-    }
-
-    const convo = await conversationsRepo.create({
-      buyerId: userId,
-      sellerId: input.sellerId,
-      shopId: shop.id,
-    });
-
-    return buildConversationResponse(convo, [], userId);
+    throw new AppError(400, "validation", "Provide sellerId or buyerId.");
   },
 
   async listMine(userId: string) {
@@ -130,6 +188,33 @@ export const conversationsService = {
 
   async sendText(userId: string, conversationId: string, input: SendTextInput) {
     const convo = await assertParticipant(conversationId, userId);
+
+    let storyContextData = {};
+    if (input.storyId) {
+      const story = await prisma.story.findUnique({
+        where: { id: input.storyId },
+        select: {
+          id: true,
+          mediaType: true,
+          mediaUrl: true,
+          posterUrl: true,
+          caption: true,
+          deletedAt: true,
+          expiresAt: true,
+        },
+      });
+      if (!story || story.deletedAt) {
+        throw new NotFoundError("Story");
+      }
+      storyContextData = {
+        storyContextStory: { connect: { id: story.id } },
+        storyContextMediaUrl: story.mediaUrl,
+        storyContextMediaType: story.mediaType,
+        storyContextPosterUrl: story.posterUrl,
+        storyContextCaption: story.caption,
+      };
+    }
+
     return persistMessage({
       convoId: conversationId,
       senderId: userId,
@@ -142,6 +227,7 @@ export const conversationsService = {
         ...(input.contextProductId && {
           contextProduct: { connect: { id: input.contextProductId } },
         }),
+        ...storyContextData,
       },
     });
   },

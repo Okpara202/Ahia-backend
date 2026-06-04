@@ -27,6 +27,10 @@ import type {
 const INVOICE_REF_PREFIX = "ahia_invoice_";
 const AUTO_RELEASE_DAYS = 7;
 const PLATFORM_FEE_RATE = 0.05;
+const PAYSTACK_FEE_RATE = 0.015;
+const PAYSTACK_FEE_FLAT = 100;
+const PAYSTACK_FEE_FLAT_THRESHOLD = 2500;
+const PAYSTACK_FEE_CAP = 2000;
 
 function generateReference(): string {
   return `${INVOICE_REF_PREFIX}${crypto.randomBytes(12).toString("hex")}`;
@@ -34,6 +38,44 @@ function generateReference(): string {
 
 function computePlatformFee(totalAmount: number): number {
   return Math.round(totalAmount * PLATFORM_FEE_RATE * 100) / 100;
+}
+
+function estimatePaystackFee(totalAmount: number): number {
+  const flat = totalAmount >= PAYSTACK_FEE_FLAT_THRESHOLD ? PAYSTACK_FEE_FLAT : 0;
+  const raw = totalAmount * PAYSTACK_FEE_RATE + flat;
+  const capped = Math.min(raw, PAYSTACK_FEE_CAP);
+  return Math.round(capped * 100) / 100;
+}
+
+// Given total seller payout for the invoice, distribute proportionally across
+// non-discount lines by their gross value. Discount lines contribute 0; any
+// rounding leftover gets dumped onto the last positive line.
+function allocateLinePayouts(
+  lines: Array<{ id: string; kind: "product" | "custom" | "discount"; unitPrice: number; quantity: number }>,
+  totalSellerPayout: number,
+): Map<string, number> {
+  const map = new Map<string, number>();
+  const positive = lines.filter((l) => l.kind !== "discount");
+  const grossSum = positive.reduce((s, l) => s + l.unitPrice * l.quantity, 0);
+  if (grossSum <= 0 || totalSellerPayout <= 0) {
+    for (const l of lines) map.set(l.id, 0);
+    return map;
+  }
+  let allocated = 0;
+  for (let i = 0; i < positive.length; i++) {
+    const l = positive[i]!;
+    const lineGross = l.unitPrice * l.quantity;
+    let share = Math.round((lineGross / grossSum) * totalSellerPayout * 100) / 100;
+    if (i === positive.length - 1) {
+      share = Math.round((totalSellerPayout - allocated) * 100) / 100;
+    }
+    map.set(l.id, share);
+    allocated += share;
+  }
+  for (const l of lines) {
+    if (!map.has(l.id)) map.set(l.id, 0);
+  }
+  return map;
 }
 
 async function expandLines(
@@ -281,9 +323,31 @@ export const invoicesService = {
     }
 
     const autoReleaseAt = new Date(Date.now() + AUTO_RELEASE_DAYS * 24 * 60 * 60 * 1000);
-    const platformFee = computePlatformFee(Number(existing.totalAmount));
+    const totalAmount = Number(existing.totalAmount);
+    const platformFee = computePlatformFee(totalAmount);
+    const paystackFee = estimatePaystackFee(totalAmount);
+    const totalSellerPayout = Math.max(0, Math.round((totalAmount - platformFee - paystackFee) * 100) / 100);
 
     const updated = await invoicesRepo.setPaid(invoiceId, reference, autoReleaseAt, platformFee);
+
+    // Compute per-line seller payout amounts and persist
+    const lineAllocations = allocateLinePayouts(
+      existing.lines.map((l) => ({
+        id: l.id,
+        kind: l.kind,
+        unitPrice: Number(l.unitPrice),
+        quantity: l.quantity,
+      })),
+      totalSellerPayout,
+    );
+    await prisma.$transaction(
+      Array.from(lineAllocations.entries()).map(([lineId, amount]) =>
+        prisma.invoiceLine.update({
+          where: { id: lineId },
+          data: { sellerPayoutAmount: amount },
+        }),
+      ),
+    );
 
     await prisma.transaction.create({
       data: {
@@ -359,6 +423,7 @@ export const invoicesService = {
     }
 
     await invoicesRepo.setLineStatus(lineId, "released");
+    await creditSellerForLine(invoice.sellerId, line.id, Number(line.sellerPayoutAmount));
     const invoiceStatus = await recomputeInvoiceStatus(invoice.id);
 
     await broadcastInvoiceEvent(invoice.buyerId, invoice.sellerId, "invoice:line_confirmed", {
@@ -367,6 +432,7 @@ export const invoicesService = {
       conversationId: invoice.conversationId,
       status: "released",
       releasedAmount: Number(line.unitPrice) * line.quantity,
+      sellerPayoutAmount: Number(line.sellerPayoutAmount),
       invoiceStatus,
     });
 
@@ -499,11 +565,20 @@ export const invoicesService = {
   },
 };
 
+async function creditSellerForLine(sellerId: string, _lineId: string, amount: number) {
+  if (amount <= 0) return;
+  await prisma.user.update({
+    where: { id: sellerId },
+    data: { owedBalance: { increment: amount } },
+  });
+}
+
 export const invoicesBackground = {
   async autoReleaseLine(lineId: string) {
     const line = await invoicesRepo.findLine(lineId);
     if (!line || line.status !== "pending") return;
     await invoicesRepo.setLineStatus(lineId, "released");
+    await creditSellerForLine(line.invoice.sellerId, line.id, Number(line.sellerPayoutAmount));
     const invoiceStatus = await recomputeInvoiceStatus(line.invoice.id);
     await broadcastInvoiceEvent(line.invoice.buyerId, line.invoice.sellerId, "invoice:line_confirmed", {
       lineId,

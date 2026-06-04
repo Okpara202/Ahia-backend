@@ -1,14 +1,21 @@
 import { z } from "zod";
 
-export const startConversationSchema = z.object({
-  sellerId: z.string().uuid(),
-  contextProductId: z.string().uuid().optional(),
-});
+export const startConversationSchema = z
+  .object({
+    sellerId: z.string().uuid().optional(),
+    buyerId: z.string().uuid().optional(),
+    contextProductId: z.string().uuid().optional(),
+  })
+  .refine(
+    (data) => Boolean(data.sellerId) !== Boolean(data.buyerId),
+    { message: "Exactly one of sellerId or buyerId is required" },
+  );
 
 export const sendTextSchema = z.object({
   type: z.literal("text").optional(),
   content: z.string().min(1).max(4000),
   contextProductId: z.string().uuid().optional(),
+  storyId: z.string().uuid().optional(),
 });
 
 export const sendImageSchema = z.object({

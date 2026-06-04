@@ -32,6 +32,18 @@ export const messageInclude = {
       cover: true,
     },
   },
+  storyContextStory: {
+    select: {
+      id: true,
+      shopId: true,
+      mediaType: true,
+      mediaUrl: true,
+      posterUrl: true,
+      caption: true,
+      deletedAt: true,
+      expiresAt: true,
+    },
+  },
   reactions: {
     select: { userId: true, emoji: true },
   },

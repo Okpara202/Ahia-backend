@@ -1,5 +1,7 @@
 import { prisma } from "../../config/db.js";
+import { logger } from "../../config/logger.js";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../../errors.js";
+import { paystack } from "../../integrations/paystack.js";
 import { broadcastToUser } from "../../realtime/socket.js";
 import { notificationsService } from "../notifications/notifications.service.js";
 import { notificationRenderers } from "../notifications/notifications.renderer.js";
@@ -7,6 +9,42 @@ import { recomputeInvoiceStatus } from "../invoices/invoices.repo.js";
 import { disputesRepo } from "./disputes.repo.js";
 import type { ListDisputesQuery, ResolveDisputeInput } from "./disputes.schemas.js";
 import type { SessionUser } from "../../middleware/auth.js";
+
+async function refundLineToBuyer(
+  invoiceId: string,
+  lineId: string,
+  amountInNaira: number,
+): Promise<void> {
+  if (amountInNaira <= 0) return;
+  try {
+    const txn = await prisma.transaction.findUnique({
+      where: { invoiceId },
+      select: { paystackRef: true },
+    });
+    if (!txn) {
+      logger.warn("disputes: refund skipped, no transaction", { invoiceId, lineId });
+      return;
+    }
+    const result = await paystack.initiateRefund({
+      transactionReference: txn.paystackRef,
+      amountInKobo: Math.round(amountInNaira * 100),
+    });
+    logger.info("disputes: refund initiated", {
+      invoiceId,
+      lineId,
+      amount: amountInNaira,
+      refundId: result.refundId,
+      status: result.status,
+    });
+  } catch (err) {
+    logger.error("disputes: paystack refund failed", {
+      invoiceId,
+      lineId,
+      amount: amountInNaira,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
 
 function paginate<T extends { id: string }>(rows: T[], limit: number) {
   const hasMore = rows.length > limit;
@@ -48,6 +86,7 @@ export const disputesService = {
     const lineId = dispute.invoiceLineId;
     const lineStatus = input.resolution === "released_to_seller" ? "released" : "refunded";
 
+    const lineRow = dispute.invoiceLine;
     await prisma.$transaction(async (tx) => {
       await tx.dispute.update({
         where: { id },
@@ -61,7 +100,20 @@ export const disputesService = {
         where: { id: lineId },
         data: { status: lineStatus, resolvedAt: new Date() },
       });
+      if (lineStatus === "released") {
+        const credit = Number(lineRow.sellerPayoutAmount);
+        if (credit > 0) {
+          await tx.user.update({
+            where: { id: invoice.sellerId },
+            data: { owedBalance: { increment: credit } },
+          });
+        }
+      }
     });
+
+    if (lineStatus === "refunded") {
+      void refundLineToBuyer(invoice.id, lineRow.id, Number(lineRow.unitPrice) * lineRow.quantity);
+    }
 
     const invoiceStatus = await recomputeInvoiceStatus(invoice.id);
 
@@ -77,7 +129,6 @@ export const disputesService = {
     broadcastToUser(invoice.buyerId, event, payload);
     broadcastToUser(invoice.sellerId, event, payload);
 
-    const lineRow = dispute.invoiceLine;
     const amount = Number(lineRow.unitPrice) * lineRow.quantity;
     await Promise.all([
       notificationsService.createForUser(

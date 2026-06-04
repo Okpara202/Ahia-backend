@@ -26,8 +26,11 @@ import usersRoutes from "./modules/users/users.routes.js";
 import paymentsRoutes from "./modules/payments/payments.routes.js";
 import searchRoutes from "./modules/search/search.routes.js";
 import invoicesRoutes from "./modules/invoices/invoices.routes.js";
+import payoutsRoutes from "./modules/payouts/payouts.routes.js";
+import presenceRoutes from "./modules/presence/presence.routes.js";
 import { productsController } from "./modules/products/products.controller.js";
-import { optionalAuth } from "./middleware/auth.js";
+import { followsController } from "./modules/follows/follows.controller.js";
+import { optionalAuth, requireAuth } from "./middleware/auth.js";
 
 export function createApp() {
   const app = express();
@@ -72,15 +75,25 @@ export function createApp() {
   app.use("/transactions", transactionsRoutes);
   app.use("/disputes", disputesRoutes);
   app.use(invoicesRoutes);
-  app.use("/boosts", boostsRoutes);
+  app.use(boostsRoutes);
   app.use("/discover", discoverRoutes);
   app.use("/users", usersRoutes);
   app.use("/payments", paymentsRoutes);
+  app.use(payoutsRoutes);
+  app.use(presenceRoutes);
   app.get("/feed", optionalAuth, productsController.list);
   app.use(searchRoutes);
   app.use(reviewsRoutes);
   app.use(storiesRoutes);
   app.use(referralsRoutes);
+
+  // Following / followers — small surface, mounted inline
+  app.get("/me/following", requireAuth, followsController.listFollowing);
+  app.get(
+    "/shops/me/followers",
+    requireAuth,
+    followsController.listMyFollowers,
+  );
 
   app.use(notFound);
   app.use(errorHandler);

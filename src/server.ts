@@ -6,6 +6,8 @@ import { pingRedis, redis } from "./integrations/redis.js";
 import { initSocket } from "./realtime/socket.js";
 import { startEscrowAutoRelease, stopEscrowAutoRelease } from "./jobs/escrowAutoRelease.js";
 import { startBoostExpiry, stopBoostExpiry } from "./jobs/boostExpiry.js";
+import { startStoryExpiry, stopStoryExpiry } from "./jobs/storyExpiry.js";
+import { startPayoutSweep, stopPayoutSweep } from "./jobs/payoutSweep.js";
 
 const app = createApp();
 const httpServer = createServer(app);
@@ -19,12 +21,16 @@ const server = httpServer.listen(env.PORT, () => {
   void pingRedis();
   startEscrowAutoRelease();
   startBoostExpiry();
+  startStoryExpiry();
+  startPayoutSweep();
 });
 
 const shutdown = (signal: string) => {
   logger.info(`${signal} received, shutting down`);
   stopEscrowAutoRelease();
   stopBoostExpiry();
+  stopStoryExpiry();
+  stopPayoutSweep();
   server.close(() => {
     void redis?.quit().finally(() => process.exit(0));
   });

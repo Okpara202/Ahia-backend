@@ -14,6 +14,11 @@ enum UserRole {
   admin
 }
 
+enum MediaType {
+  image
+  video
+}
+
 enum MessageType {
   text
   voice
@@ -77,6 +82,17 @@ enum ReferralStatus {
   expired
 }
 
+enum PayoutKind {
+  sweep
+  cash_out_now
+}
+
+enum PayoutStatus {
+  pending
+  paid
+  failed
+}
+
 model User {
   id           String   @id @default(uuid()) @db.Uuid
   name         String
@@ -85,9 +101,11 @@ model User {
   role         UserRole @default(buyer)
   avatarUrl    String?  @map("avatar_url")
   googleId     String?  @unique @map("google_id")
-  appleId      String?  @unique @map("apple_id")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  appleId       String?  @unique @map("apple_id")
+  allowsColdDMs Boolean  @default(true) @map("allows_cold_dms")
+  owedBalance   Decimal  @default(0) @map("owed_balance") @db.Decimal(12, 2)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
   shops                Shop[]
   follows              Follow[]
@@ -106,6 +124,9 @@ model User {
   wishlist             WishlistItem[]
   referralsMade        Referral[]        @relation("referrer")
   referralsReceived    Referral[]        @relation("invitee")
+  storyViews           StoryView[]
+  payoutAccount        PayoutAccount?
+  payouts              Payout[]
 
   @@map("users")
 }
@@ -173,6 +194,7 @@ model Product {
   invoiceLines    InvoiceLine[]  @relation("invoiceLineProduct")
   contextMessages Message[]      @relation("contextProduct")
   wishlistedBy    WishlistItem[]
+  stories         Story[]        @relation("storyProduct")
 
   @@index([category])
   @@index([shopId])
@@ -203,28 +225,35 @@ model Conversation {
 }
 
 model Message {
-  id               String      @id @default(uuid()) @db.Uuid
-  conversationId   String      @map("conversation_id") @db.Uuid
-  senderId         String?     @map("sender_id") @db.Uuid
-  type             MessageType
-  content          String?
-  voiceUrl         String?     @map("voice_url")
-  voiceDurationMs  Int?        @map("voice_duration_ms")
-  imageUrl         String?     @map("image_url")
-  invoiceId        String?     @unique @map("invoice_id") @db.Uuid
-  contextProductId String?     @map("context_product_id") @db.Uuid
-  editedAt         DateTime?   @map("edited_at")
-  createdAt        DateTime    @default(now()) @map("created_at")
+  id                     String      @id @default(uuid()) @db.Uuid
+  conversationId         String      @map("conversation_id") @db.Uuid
+  senderId               String?     @map("sender_id") @db.Uuid
+  type                   MessageType
+  content                String?
+  voiceUrl               String?     @map("voice_url")
+  voiceDurationMs        Int?        @map("voice_duration_ms")
+  imageUrl               String?     @map("image_url")
+  invoiceId              String?     @unique @map("invoice_id") @db.Uuid
+  contextProductId       String?     @map("context_product_id") @db.Uuid
+  storyContextStoryId    String?     @map("story_context_story_id") @db.Uuid
+  storyContextMediaUrl   String?     @map("story_context_media_url")
+  storyContextMediaType  MediaType?  @map("story_context_media_type")
+  storyContextPosterUrl  String?     @map("story_context_poster_url")
+  storyContextCaption    String?     @map("story_context_caption")
+  editedAt               DateTime?   @map("edited_at")
+  createdAt              DateTime    @default(now()) @map("created_at")
 
-  conversation   Conversation     @relation("conversationMessages", fields: [conversationId], references: [id], onDelete: Cascade)
-  sender         User?            @relation(fields: [senderId], references: [id])
-  invoice        Invoice?         @relation(fields: [invoiceId], references: [id])
-  contextProduct Product?         @relation("contextProduct", fields: [contextProductId], references: [id])
-  lastForConvo   Conversation?    @relation("lastMessage")
-  reads          MessageRead[]
-  reactions      MessageReaction[]
+  conversation       Conversation     @relation("conversationMessages", fields: [conversationId], references: [id], onDelete: Cascade)
+  sender             User?            @relation(fields: [senderId], references: [id])
+  invoice            Invoice?         @relation(fields: [invoiceId], references: [id])
+  contextProduct     Product?         @relation("contextProduct", fields: [contextProductId], references: [id])
+  storyContextStory  Story?           @relation("storyContextMessages", fields: [storyContextStoryId], references: [id])
+  lastForConvo       Conversation?    @relation("lastMessage")
+  reads              MessageRead[]
+  reactions          MessageReaction[]
 
   @@index([conversationId, createdAt])
+  @@index([storyContextStoryId])
   @@map("messages")
 }
 
@@ -283,29 +312,63 @@ model Invoice {
 }
 
 model InvoiceLine {
-  id              String            @id @default(uuid()) @db.Uuid
-  invoiceId       String            @map("invoice_id") @db.Uuid
-  kind            InvoiceLineKind
-  productId       String?           @map("product_id") @db.Uuid
-  name            String
-  quantity        Int               @default(1)
-  unitPrice       Decimal           @map("unit_price") @db.Decimal(12, 2)
-  status          InvoiceLineStatus @default(pending)
-  position        Int               @default(0)
-  resolvedAt      DateTime?         @map("resolved_at")
-  autoReleaseAt   DateTime?         @map("auto_release_at")
-  extendedAt      DateTime?         @map("extended_at")
-  extensionReason String?           @map("extension_reason") @db.VarChar(200)
-  createdAt       DateTime          @default(now()) @map("created_at")
+  id                 String            @id @default(uuid()) @db.Uuid
+  invoiceId          String            @map("invoice_id") @db.Uuid
+  kind               InvoiceLineKind
+  productId          String?           @map("product_id") @db.Uuid
+  name               String
+  quantity           Int               @default(1)
+  unitPrice          Decimal           @map("unit_price") @db.Decimal(12, 2)
+  sellerPayoutAmount Decimal           @default(0) @map("seller_payout_amount") @db.Decimal(12, 2)
+  status             InvoiceLineStatus @default(pending)
+  position           Int               @default(0)
+  resolvedAt         DateTime?         @map("resolved_at")
+  autoReleaseAt      DateTime?         @map("auto_release_at")
+  extendedAt         DateTime?         @map("extended_at")
+  extensionReason    String?           @map("extension_reason") @db.VarChar(200)
+  createdAt          DateTime          @default(now()) @map("created_at")
 
-  invoice Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  product Product? @relation("invoiceLineProduct", fields: [productId], references: [id])
-  dispute Dispute?
-  review  Review?
+  invoice    Invoice     @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  product    Product?    @relation("invoiceLineProduct", fields: [productId], references: [id])
+  dispute    Dispute?
+  review     Review?
+  payoutLine PayoutLine?
 
   @@index([invoiceId])
   @@index([status, autoReleaseAt])
   @@map("invoice_lines")
+}
+
+model Payout {
+  id                  String       @id @default(uuid()) @db.Uuid
+  sellerId            String       @map("seller_id") @db.Uuid
+  amount              Decimal      @db.Decimal(12, 2)
+  kind                PayoutKind   @default(sweep)
+  status              PayoutStatus @default(pending)
+  sweepDate           DateTime?    @map("sweep_date") @db.Date
+  paystackTransferRef String?      @unique @map("paystack_transfer_ref")
+  paystackResponse    Json?        @map("paystack_response")
+  paidAt              DateTime?    @map("paid_at")
+  createdAt           DateTime     @default(now()) @map("created_at")
+  updatedAt           DateTime     @updatedAt @map("updated_at")
+
+  seller User         @relation(fields: [sellerId], references: [id])
+  lines  PayoutLine[]
+
+  @@unique([sellerId, sweepDate])
+  @@index([sellerId, createdAt])
+  @@map("payouts")
+}
+
+model PayoutLine {
+  payoutId      String @map("payout_id") @db.Uuid
+  invoiceLineId String @unique @map("invoice_line_id") @db.Uuid
+
+  payout      Payout      @relation(fields: [payoutId], references: [id], onDelete: Cascade)
+  invoiceLine InvoiceLine @relation(fields: [invoiceLineId], references: [id])
+
+  @@id([payoutId, invoiceLineId])
+  @@map("payout_lines")
 }
 
 model Transaction {
@@ -433,17 +496,56 @@ model Boost {
 }
 
 model Story {
-  id         String   @id @default(uuid()) @db.Uuid
-  shopId     String   @map("shop_id") @db.Uuid
-  mediaUrl   String   @map("media_url")
-  durationMs Int      @default(5000) @map("duration_ms")
-  expiresAt  DateTime @map("expires_at")
-  createdAt  DateTime @default(now()) @map("created_at")
+  id           String    @id @default(uuid()) @db.Uuid
+  shopId       String    @map("shop_id") @db.Uuid
+  mediaType    MediaType @map("media_type")
+  mediaUrl     String    @map("media_url")
+  posterUrl    String?   @map("poster_url")
+  caption      String?
+  productId    String?   @map("product_id") @db.Uuid
+  cloudinaryId String?   @map("cloudinary_id")
+  durationMs   Int       @default(5000) @map("duration_ms")
+  viewCount    Int       @default(0) @map("view_count")
+  expiresAt    DateTime  @map("expires_at")
+  deletedAt    DateTime? @map("deleted_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
 
-  shop Shop @relation(fields: [shopId], references: [id])
+  shop             Shop        @relation(fields: [shopId], references: [id])
+  product          Product?    @relation("storyProduct", fields: [productId], references: [id])
+  views            StoryView[]
+  contextMessages  Message[]   @relation("storyContextMessages")
 
   @@index([shopId, expiresAt])
+  @@index([deletedAt])
   @@map("stories")
+}
+
+model StoryView {
+  storyId  String   @map("story_id") @db.Uuid
+  userId   String   @map("user_id") @db.Uuid
+  viewedAt DateTime @default(now()) @map("viewed_at")
+
+  story Story @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([storyId, userId])
+  @@index([userId])
+  @@map("story_views")
+}
+
+model PayoutAccount {
+  id                    String   @id @default(uuid()) @db.Uuid
+  userId                String   @unique @map("user_id") @db.Uuid
+  bankCode              String   @map("bank_code")
+  accountNumber         String   @map("account_number")
+  accountName           String   @map("account_name")
+  paystackRecipientCode String?  @map("paystack_recipient_code")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("payout_accounts")
 }
 
 model Review {

@@ -45,6 +45,14 @@ export const boostsService = {
     return boostsRepo.listForUser(userId);
   },
 
+  async activeForProduct(productId: string) {
+    return boostsRepo.findActiveForProduct(productId, new Date());
+  },
+
+  async activeForShop(shopId: string) {
+    return boostsRepo.listActiveForShop(shopId, new Date());
+  },
+
   async initPurchase(userId: string, input: BuyBoostInput) {
     const plan = getPlan(input.plan);
     if (!plan) throw new BadRequestError("Invalid plan");

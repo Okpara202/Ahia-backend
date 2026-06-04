@@ -35,16 +35,26 @@ async function ownerName(shop: Shop): Promise<string | null> {
   return owner?.name ?? null;
 }
 
+async function hasPayoutAccount(ownerId: string): Promise<boolean> {
+  const account = await prisma.payoutAccount.findUnique({
+    where: { userId: ownerId },
+    select: { paystackRecipientCode: true },
+  });
+  return !!account?.paystackRecipientCode;
+}
+
 async function withStats(shop: Shop, ctx: ViewContext = {}) {
-  const [productsCount, followerCount, isFollowing, name] = await Promise.all([
+  const [productsCount, followerCount, isFollowing, name, payoutOk] = await Promise.all([
     shopsRepo.productCount(shop.id),
     followsRepo.count(shop.id),
     ctx.viewerId ? followsRepo.exists(ctx.viewerId, shop.id) : Promise.resolve(null),
     ctx.isOwner || shop.showLegalName ? ownerName(shop) : Promise.resolve(null),
+    ctx.isOwner ? hasPayoutAccount(shop.ownerId) : Promise.resolve(null),
   ]);
-  const base = { ...shop, productsCount, followerCount, isFollowing };
-  if (name === null) return base;
-  return { ...base, ownerName: name };
+  const base: Record<string, unknown> = { ...shop, productsCount, followerCount, isFollowing };
+  if (name !== null) base.ownerName = name;
+  if (payoutOk !== null) base.hasPayoutAccount = payoutOk;
+  return base;
 }
 
 export const shopsService = {

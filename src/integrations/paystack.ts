@@ -46,6 +46,97 @@ export const paystack = {
     return res.data.data;
   },
 
+  async listBanks(): Promise<Array<{ code: string; name: string }>> {
+    const res = await client.get<{
+      data: Array<{ code: string; name: string }>;
+    }>("/bank?country=nigeria&perPage=200");
+    return res.data.data.map((b) => ({ code: b.code, name: b.name }));
+  },
+
+  async resolveAccount(args: {
+    bankCode: string;
+    accountNumber: string;
+  }): Promise<{ accountName: string }> {
+    const res = await client.get<{
+      status: boolean;
+      message: string;
+      data: { account_name: string };
+    }>(
+      `/bank/resolve?account_number=${encodeURIComponent(args.accountNumber)}&bank_code=${encodeURIComponent(args.bankCode)}`,
+    );
+    return { accountName: res.data.data.account_name };
+  },
+
+  async createTransferRecipient(args: {
+    name: string;
+    accountNumber: string;
+    bankCode: string;
+  }): Promise<{ recipientCode: string }> {
+    const res = await client.post<{
+      data: { recipient_code: string };
+    }>("/transferrecipient", {
+      type: "nuban",
+      name: args.name,
+      account_number: args.accountNumber,
+      bank_code: args.bankCode,
+      currency: "NGN",
+    });
+    return { recipientCode: res.data.data.recipient_code };
+  },
+
+  async deleteTransferRecipient(recipientCode: string): Promise<void> {
+    await client.delete(`/transferrecipient/${encodeURIComponent(recipientCode)}`);
+  },
+
+  async initiateRefund(args: {
+    transactionReference: string;
+    amountInKobo: number;
+  }): Promise<{ refundId: string; status: string; raw: unknown }> {
+    const res = await client.post<{
+      data: { id: number; status: string };
+    }>("/refund", {
+      transaction: args.transactionReference,
+      amount: args.amountInKobo,
+    });
+    return {
+      refundId: String(res.data.data.id),
+      status: res.data.data.status,
+      raw: res.data,
+    };
+  },
+
+  async initiateTransfer(args: {
+    amountInKobo: number;
+    recipientCode: string;
+    reason: string;
+    reference: string;
+  }): Promise<{
+    transferCode: string;
+    transferReference: string;
+    status: string;
+    raw: unknown;
+  }> {
+    const res = await client.post<{
+      data: {
+        transfer_code: string;
+        reference: string;
+        status: string;
+      };
+    }>("/transfer", {
+      source: "balance",
+      amount: args.amountInKobo,
+      recipient: args.recipientCode,
+      reason: args.reason,
+      reference: args.reference,
+    });
+    return {
+      transferCode: res.data.data.transfer_code,
+      transferReference: res.data.data.reference,
+      status: res.data.data.status,
+      raw: res.data,
+    };
+  },
+
   verifyWebhookSignature(rawBody: Buffer | string, signature: string): boolean {
     const computed = crypto
       .createHmac("sha512", requireKey())

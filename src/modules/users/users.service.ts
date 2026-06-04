@@ -15,6 +15,7 @@ export const usersService = {
       data: {
         ...(input.name !== undefined && { name: input.name }),
         ...(input.avatarUrl !== undefined && { avatarUrl: input.avatarUrl }),
+        ...(input.allowsColdDMs !== undefined && { allowsColdDMs: input.allowsColdDMs }),
       },
     });
     if (!user) throw new NotFoundError("User");

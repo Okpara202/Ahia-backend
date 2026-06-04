@@ -34,4 +34,19 @@ export const boostsRepo = {
       select: { id: true },
     });
   },
+
+  findActiveForProduct(productId: string, now: Date) {
+    return prisma.boost.findFirst({
+      where: { productId, endsAt: { gte: now } },
+      orderBy: { endsAt: "desc" },
+    });
+  },
+
+  listActiveForShop(shopId: string, now: Date) {
+    return prisma.boost.findMany({
+      where: { product: { shopId }, endsAt: { gte: now } },
+      orderBy: { endsAt: "desc" },
+      include: boostInclude,
+    });
+  },
 };

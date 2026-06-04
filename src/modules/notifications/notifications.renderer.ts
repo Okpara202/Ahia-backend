@@ -227,6 +227,46 @@ export const notificationRenderers = {
     };
   },
 
+  storyPosted(args: {
+    shopHandle: string;
+    shopId: string;
+    storyId: string;
+    caption: string | null;
+  }): Rendered {
+    const body = (args.caption ?? "Tap to see what's new.").slice(0, 80);
+    return {
+      type: "story_posted",
+      title: `@${args.shopHandle} posted a new drop`,
+      body,
+      link: `/shops/${args.shopId}`,
+      payload: { shopId: args.shopId, storyId: args.storyId },
+    };
+  },
+
+  payoutSettled(args: { amount: number; sellerId: string; payoutId: string }): Rendered {
+    return {
+      type: "payout_settled",
+      title: `₦${formatNaira(args.amount)} paid out`,
+      body: "Landing in your bank account shortly. Track it in your payout history.",
+      link: "/seller/payouts",
+      payload: {
+        amount: args.amount,
+        sellerId: args.sellerId,
+        payoutId: args.payoutId,
+      },
+    };
+  },
+
+  payoutAwaitingAccount(args: { amount: number; sellerId: string }): Rendered {
+    return {
+      type: "payout_awaiting_account",
+      title: `₦${formatNaira(args.amount)} ready to pay out`,
+      body: "Add your payout account to receive this — until you do, daily sweep skips you.",
+      link: "/seller/shop",
+      payload: { amount: args.amount, sellerId: args.sellerId },
+    };
+  },
+
   shopReopened(args: { shopName: string; shopHandle: string; shopId: string }): Rendered {
     return {
       type: "shop_reopened",

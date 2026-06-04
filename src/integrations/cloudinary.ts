@@ -51,6 +51,81 @@ export function uploadImageBuffer(buffer: Buffer, opts: UploadOptions): Promise<
   });
 }
 
+export type UploadResult = { url: string; publicId: string; posterUrl?: string };
+
+export function uploadStoryImageBuffer(
+  buffer: Buffer,
+  opts: UploadOptions,
+): Promise<UploadResult> {
+  if (!isConfigured) throw new InternalError("Cloudinary not configured");
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder: opts.folder,
+        public_id: opts.publicId,
+        resource_type: "image",
+        overwrite: !!opts.publicId,
+      },
+      (err, result) => {
+        if (err || !result?.secure_url || !result?.public_id) {
+          reject(err ?? new InternalError("Cloudinary story image upload returned no URL"));
+        } else {
+          resolve({ url: result.secure_url, publicId: result.public_id });
+        }
+      },
+    );
+    stream.end(buffer);
+  });
+}
+
+export function uploadStoryVideoBuffer(
+  buffer: Buffer,
+  opts: UploadOptions,
+): Promise<UploadResult> {
+  if (!isConfigured) throw new InternalError("Cloudinary not configured");
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder: opts.folder,
+        public_id: opts.publicId,
+        resource_type: "video",
+        overwrite: !!opts.publicId,
+      },
+      (err, result) => {
+        if (err || !result?.secure_url || !result?.public_id) {
+          reject(err ?? new InternalError("Cloudinary story video upload returned no URL"));
+          return;
+        }
+        const posterUrl = cloudinary.url(result.public_id, {
+          resource_type: "video",
+          format: "jpg",
+          secure: true,
+        });
+        resolve({ url: result.secure_url, publicId: result.public_id, posterUrl });
+      },
+    );
+    stream.end(buffer);
+  });
+}
+
+export async function destroyAsset(
+  publicId: string,
+  resourceType: "image" | "video",
+): Promise<void> {
+  if (!isConfigured) {
+    logger.warn("cloudinary: destroyAsset skipped — not configured", { publicId });
+    return;
+  }
+  try {
+    await cloudinary.uploader.destroy(publicId, { resource_type: resourceType, invalidate: true });
+  } catch (err) {
+    logger.error("cloudinary: destroyAsset failed", {
+      publicId,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 export function uploadVoiceBuffer(buffer: Buffer, opts: UploadOptions): Promise<string> {
   if (!isConfigured) throw new InternalError("Cloudinary not configured");
   return new Promise((resolve, reject) => {
