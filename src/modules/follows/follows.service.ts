@@ -1,6 +1,9 @@
+import { prisma } from "../../config/db.js";
 import { AppError, NotFoundError } from "../../errors.js";
 import { presenceService } from "../presence/presence.service.js";
 import { shopsRepo } from "../shops/shops.repo.js";
+import { notificationsService } from "../notifications/notifications.service.js";
+import { notificationRenderers } from "../notifications/notifications.renderer.js";
 import { followsRepo } from "./follows.repo.js";
 
 function paginate<T>(rows: T[], limit: number, getCursor: (r: T) => string) {
@@ -20,7 +23,34 @@ export const followsService = {
     if (shop.ownerId === userId) {
       throw new AppError(400, "self_follow", "You can't follow your own shop.");
     }
-    await followsRepo.add(userId, shopId);
+    const created = await followsRepo.add(userId, shopId);
+    // Idempotent: only fire the notification when this is a NEW follow,
+    // not a duplicate POST. followsRepo.add returns the row count via the
+    // .count return; if 0, the follow already existed and we skip.
+    if (created) {
+      const follower = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          name: true,
+          shops: {
+            where: { deletedAt: null },
+            select: { handle: true },
+            take: 1,
+          },
+        },
+      });
+      if (follower) {
+        await notificationsService.createForUser(
+          shop.ownerId,
+          notificationRenderers.followReceived({
+            followerName: follower.name,
+            followerHandle: follower.shops[0]?.handle ?? null,
+            followerId: userId,
+            shopId,
+          }),
+        );
+      }
+    }
   },
 
   async unfollow(userId: string, shopId: string) {

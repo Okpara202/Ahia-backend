@@ -47,13 +47,27 @@ function asciiMatches(buf: Buffer, at: number, text: string): boolean {
   return buf.slice(at, at + text.length).toString("ascii") === text;
 }
 
+// For ISOBMFF containers (ftyp at offset 4) the actual kind depends on the
+// brand at offset 8. MP4 / QuickTime / etc. are video; HEIC / HEIF are image.
+// Anything else falls back to image (legacy behavior).
+const VIDEO_FTYP_BRANDS = new Set([
+  "mp41", "mp42", "isom", "iso2", "iso4", "iso5", "iso6",
+  "avc1", "qt  ", "M4V ", "M4A ", "f4v ", "dash", "msnv", "MSNV",
+]);
+
 function sniff(buf: Buffer): Kind | null {
   for (const sig of SIGNATURES) {
     const headOk = startsWith(buf, sig.bytes);
     const asciiOk = sig.asciiAt
       ? asciiMatches(buf, sig.asciiAt.offset, sig.asciiAt.text)
       : true;
-    if (headOk && asciiOk) return sig.kind;
+    if (!headOk || !asciiOk) continue;
+    // Special case: ftyp containers — refine image vs video by brand.
+    if (sig.asciiAt?.text === "ftyp" && buf.length >= 12) {
+      const brand = buf.slice(8, 12).toString("ascii");
+      if (VIDEO_FTYP_BRANDS.has(brand)) return "video";
+    }
+    return sig.kind;
   }
   return null;
 }

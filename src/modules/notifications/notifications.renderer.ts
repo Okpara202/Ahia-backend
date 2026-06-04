@@ -267,6 +267,29 @@ export const notificationRenderers = {
     };
   },
 
+  followReceived(args: {
+    followerName: string;
+    followerHandle: string | null;
+    followerId: string;
+    shopId: string;
+  }): Rendered {
+    const display = args.followerHandle
+      ? `@${args.followerHandle}`
+      : args.followerName;
+    return {
+      type: "follow",
+      title: `${display} followed your shop`,
+      body: "Open your followers list to say hi.",
+      link: "/seller/shop/followers",
+      payload: {
+        followerId: args.followerId,
+        followerHandle: args.followerHandle,
+        followerName: args.followerName,
+        shopId: args.shopId,
+      },
+    };
+  },
+
   shopReopened(args: { shopName: string; shopHandle: string; shopId: string }): Rendered {
     return {
       type: "shop_reopened",

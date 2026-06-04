@@ -1,12 +1,13 @@
 import { prisma } from "../../config/db.js";
 
 export const followsRepo = {
-  async add(userId: string, shopId: string) {
+  async add(userId: string, shopId: string): Promise<boolean> {
     try {
       await prisma.follow.create({ data: { userId, shopId } });
+      return true;
     } catch (err) {
       const code = (err as { code?: string }).code;
-      if (code === "P2002") return;
+      if (code === "P2002") return false;
       throw err;
     }
   },

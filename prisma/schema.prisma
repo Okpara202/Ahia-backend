@@ -429,23 +429,44 @@ model Notification {
 }
 
 model DiscoverPost {
-  id          String   @id @default(uuid()) @db.Uuid
-  shopId      String   @map("shop_id") @db.Uuid
-  videoUrl    String   @map("video_url")
-  posterUrl   String?  @map("poster_url")
-  caption     String?
-  ctaType     String   @map("cta_type")
-  ctaTargetId String   @map("cta_target_id") @db.Uuid
-  impressions Int      @default(0)
-  clicks      Int      @default(0)
-  saves       Int      @default(0)
-  createdAt   DateTime @default(now()) @map("created_at")
+  id              String    @id @default(uuid()) @db.Uuid
+  shopId          String    @map("shop_id") @db.Uuid
+  videoUrl        String    @map("video_url")
+  posterUrl       String?   @map("poster_url")
+  posterPublicId  String?   @map("poster_public_id")
+  caption         String?
+  ctaType         String    @map("cta_type")
+  ctaTargetId     String    @map("cta_target_id") @db.Uuid
+  impressions     Int       @default(0)
+  clicks          Int       @default(0)
+  saves           Int       @default(0)
+  expiresAt       DateTime  @map("expires_at")
+  editsRemaining  Int       @default(3) @map("edits_remaining")
+  lastEditedAt    DateTime? @map("last_edited_at")
+  intentFree      Boolean   @default(true) @map("intent_free")
+  createdAt       DateTime  @default(now()) @map("created_at")
 
   shop      Shop               @relation(fields: [shopId], references: [id])
   campaigns DiscoverCampaign[]
+  edits     DiscoverPostEdit[]
 
   @@index([shopId])
+  @@index([expiresAt])
   @@map("discover_posts")
+}
+
+model DiscoverPostEdit {
+  id                String   @id @default(uuid()) @db.Uuid
+  postId            String   @map("post_id") @db.Uuid
+  editedAt          DateTime @default(now()) @map("edited_at")
+  fieldsChanged     String[] @map("fields_changed")
+  previousCaption   String?  @map("previous_caption")
+  previousPosterUrl String?  @map("previous_poster_url")
+
+  post DiscoverPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId, editedAt])
+  @@map("discover_post_edits")
 }
 
 model DiscoverCampaign {
