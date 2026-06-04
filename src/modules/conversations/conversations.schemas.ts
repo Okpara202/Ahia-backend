@@ -21,11 +21,13 @@ export const sendTextSchema = z.object({
 export const sendImageSchema = z.object({
   caption: z.string().max(500).optional(),
   contextProductId: z.string().uuid().optional(),
+  storyId: z.string().uuid().optional(),
 });
 
 export const sendVoiceSchema = z.object({
   durationMs: z.coerce.number().int().min(100).max(3 * 60 * 1000),
   contextProductId: z.string().uuid().optional(),
+  storyId: z.string().uuid().optional(),
 });
 
 export const editTextSchema = z.object({

@@ -122,6 +122,32 @@ function counterpartyOf(convo: { buyerId: string; sellerId: string }, userId: st
   return convo.buyerId === userId ? convo.sellerId : convo.buyerId;
 }
 
+async function resolveStoryContextData(storyId: string | undefined) {
+  if (!storyId) return {};
+  const story = await prisma.story.findUnique({
+    where: { id: storyId },
+    select: {
+      id: true,
+      mediaType: true,
+      mediaUrl: true,
+      posterUrl: true,
+      caption: true,
+      deletedAt: true,
+      expiresAt: true,
+    },
+  });
+  if (!story || story.deletedAt) {
+    throw new NotFoundError("Story");
+  }
+  return {
+    storyContextStory: { connect: { id: story.id } },
+    storyContextMediaUrl: story.mediaUrl,
+    storyContextMediaType: story.mediaType,
+    storyContextPosterUrl: story.posterUrl,
+    storyContextCaption: story.caption,
+  };
+}
+
 async function persistMessage(args: {
   convoId: string;
   senderId: string;
@@ -188,32 +214,7 @@ export const conversationsService = {
 
   async sendText(userId: string, conversationId: string, input: SendTextInput) {
     const convo = await assertParticipant(conversationId, userId);
-
-    let storyContextData = {};
-    if (input.storyId) {
-      const story = await prisma.story.findUnique({
-        where: { id: input.storyId },
-        select: {
-          id: true,
-          mediaType: true,
-          mediaUrl: true,
-          posterUrl: true,
-          caption: true,
-          deletedAt: true,
-          expiresAt: true,
-        },
-      });
-      if (!story || story.deletedAt) {
-        throw new NotFoundError("Story");
-      }
-      storyContextData = {
-        storyContextStory: { connect: { id: story.id } },
-        storyContextMediaUrl: story.mediaUrl,
-        storyContextMediaType: story.mediaType,
-        storyContextPosterUrl: story.posterUrl,
-        storyContextCaption: story.caption,
-      };
-    }
+    const storyContextData = await resolveStoryContextData(input.storyId);
 
     return persistMessage({
       convoId: conversationId,
@@ -239,6 +240,7 @@ export const conversationsService = {
     input: SendImageInput,
   ) {
     const convo = await assertParticipant(conversationId, userId);
+    const storyContextData = await resolveStoryContextData(input.storyId);
     const imageUrl = await uploadImageBuffer(fileBuffer, {
       folder: `ahia/messages/${conversationId}`,
     });
@@ -256,6 +258,7 @@ export const conversationsService = {
         ...(input.contextProductId && {
           contextProduct: { connect: { id: input.contextProductId } },
         }),
+        ...storyContextData,
       },
     });
   },
@@ -267,6 +270,7 @@ export const conversationsService = {
     input: SendVoiceInput,
   ) {
     const convo = await assertParticipant(conversationId, userId);
+    const storyContextData = await resolveStoryContextData(input.storyId);
     const voiceUrl = await uploadVoiceBuffer(fileBuffer, {
       folder: `ahia/voice/${conversationId}`,
     });
@@ -283,6 +287,7 @@ export const conversationsService = {
         ...(input.contextProductId && {
           contextProduct: { connect: { id: input.contextProductId } },
         }),
+        ...storyContextData,
       },
     });
   },
