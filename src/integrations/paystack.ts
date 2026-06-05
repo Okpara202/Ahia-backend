@@ -2,6 +2,7 @@ import axios from "axios";
 import crypto from "node:crypto";
 import { env } from "../config/env.js";
 import { InternalError } from "../errors.js";
+import { logger } from "../config/logger.js";
 
 function requireKey(): string {
   if (!env.PAYSTACK_SECRET_KEY) {
@@ -16,6 +17,26 @@ client.interceptors.request.use((config) => {
   config.headers.set("Authorization", `Bearer ${requireKey()}`);
   return config;
 });
+
+// Log Paystack's structured response on every failure so we can distinguish
+// "Invalid key" from "Could not resolve account name" from rate-limiting etc.
+// Without this every Paystack 4XX/5XX surfaces as a generic axios message.
+// Strips query string from the URL to avoid logging PII (account numbers).
+client.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const url = (error?.config?.url ?? "") as string;
+    const pathOnly = url.split("?")[0];
+    logger.warn("paystack: request failed", {
+      method: (error?.config?.method ?? "").toUpperCase(),
+      path: pathOnly,
+      status: error?.response?.status,
+      paystackBody: error?.response?.data,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return Promise.reject(error);
+  },
+);
 
 type InitTransactionArgs = {
   email: string;
