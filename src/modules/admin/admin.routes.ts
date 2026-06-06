@@ -6,6 +6,8 @@ import { adminAuthController } from "./auth/admin.controller.js";
 import { adminDisputesController } from "./disputes/admin.disputes.controller.js";
 import { adminUsersController } from "./users/admin.users.controller.js";
 import { adminShopsController } from "./shops/admin.shops.controller.js";
+import { adminsController } from "./admins/admin.admins.controller.js";
+import { auditController } from "./audit/admin.audit.controller.js";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -79,5 +81,33 @@ router.post(
   adminShopsController.deactivate,
 );
 router.post("/shops/:id/restore", requireAdmin(), adminShopsController.restore);
+
+// ---- Admin management (super_admin only) ----
+router.get("/admins", requireAdmin("super_admin"), adminsController.list);
+router.get("/admins/:id", requireAdmin("super_admin"), adminsController.getById);
+router.post("/admins", requireAdmin("super_admin"), adminsController.invite);
+router.post(
+  "/admins/:id/suspend",
+  requireAdmin("super_admin"),
+  adminsController.suspend,
+);
+router.post(
+  "/admins/:id/restore",
+  requireAdmin("super_admin"),
+  adminsController.restore,
+);
+router.post(
+  "/admins/:id/role",
+  requireAdmin("super_admin"),
+  adminsController.changeRole,
+);
+router.post(
+  "/admins/:id/reset-2fa",
+  requireAdmin("super_admin"),
+  adminsController.reset2fa,
+);
+
+// ---- Audit log (any admin; regular admins auto-scoped to their own) ----
+router.get("/audit", requireAdmin(), auditController.list);
 
 export default router;
