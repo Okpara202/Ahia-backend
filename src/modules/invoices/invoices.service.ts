@@ -487,7 +487,7 @@ export const invoicesService = {
           invoiceLine: { connect: { id: lineId } },
           raisedBy: { connect: { id: userId } },
           reason: input.reason,
-          evidenceUrl: input.evidenceUrl,
+          evidenceUrls: input.evidenceUrl ? [input.evidenceUrl] : [],
         },
       });
       await tx.invoiceLine.update({

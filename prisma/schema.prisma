@@ -93,6 +93,21 @@ enum PayoutStatus {
   failed
 }
 
+enum UserStatus {
+  active
+  suspended
+}
+
+enum AdminRole {
+  admin
+  super_admin
+}
+
+enum AdminStatus {
+  active
+  suspended
+}
+
 model User {
   id           String   @id @default(uuid()) @db.Uuid
   name         String
@@ -104,6 +119,10 @@ model User {
   appleId       String?  @unique @map("apple_id")
   allowsColdDMs Boolean  @default(true) @map("allows_cold_dms")
   owedBalance   Decimal  @default(0) @map("owed_balance") @db.Decimal(12, 2)
+  status        UserStatus @default(active)
+  suspendedAt   DateTime?  @map("suspended_at")
+  suspendedReason String?  @map("suspended_reason")
+  suspendedById String?    @map("suspended_by_id") @db.Uuid
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
@@ -144,6 +163,9 @@ model Shop {
   showLegalName Boolean   @default(false) @map("show_legal_name")
   isActive      Boolean   @default(true) @map("is_active")
   deletedAt     DateTime? @map("deleted_at")
+  adminSuspendedAt     DateTime? @map("admin_suspended_at")
+  adminSuspendedReason String?   @map("admin_suspended_reason")
+  adminSuspendedById   String?   @map("admin_suspended_by_id") @db.Uuid
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
@@ -394,18 +416,21 @@ model Transaction {
 }
 
 model Dispute {
-  id            String             @id @default(uuid()) @db.Uuid
-  invoiceLineId String             @unique @map("invoice_line_id") @db.Uuid
-  raisedById    String             @map("raised_by_id") @db.Uuid
-  reason        String
-  evidenceUrl   String?            @map("evidence_url")
-  status        DisputeStatus      @default(open)
-  resolution    DisputeResolution?
-  createdAt     DateTime           @default(now()) @map("created_at")
-  resolvedAt    DateTime?          @map("resolved_at")
+  id               String             @id @default(uuid()) @db.Uuid
+  invoiceLineId    String             @unique @map("invoice_line_id") @db.Uuid
+  raisedById       String             @map("raised_by_id") @db.Uuid
+  reason           String
+  evidenceUrls     String[]           @map("evidence_urls")
+  status           DisputeStatus      @default(open)
+  resolution       DisputeResolution?
+  resolvedByAdminId String?           @map("resolved_by_admin_id") @db.Uuid
+  resolutionNote   String?            @map("resolution_note")
+  createdAt        DateTime           @default(now()) @map("created_at")
+  resolvedAt       DateTime?          @map("resolved_at")
 
-  invoiceLine InvoiceLine @relation(fields: [invoiceLineId], references: [id], onDelete: Cascade)
-  raisedBy    User        @relation("disputesRaised", fields: [raisedById], references: [id])
+  invoiceLine    InvoiceLine @relation(fields: [invoiceLineId], references: [id], onDelete: Cascade)
+  raisedBy       User        @relation("disputesRaised", fields: [raisedById], references: [id])
+  resolvedByAdmin AdminUser? @relation("resolvedDisputes", fields: [resolvedByAdminId], references: [id])
 
   @@map("disputes")
 }
@@ -617,3 +642,92 @@ model WishlistItem {
   @@id([userId, productId])
   @@map("wishlist_items")
 }
+
+// ---------------------------------------------------------------------------
+// Admin app — Phase 1 (separate auth boundary; admins never appear in feeds)
+// ---------------------------------------------------------------------------
+
+model AdminUser {
+  id              String      @id @default(uuid()) @db.Uuid
+  email           String      @unique
+  passwordHash    String      @map("password_hash")
+  name            String
+  role            AdminRole   @default(admin)
+  totpSecret      String?     @map("totp_secret")
+  totpEnabled     Boolean     @default(false) @map("totp_enabled")
+  status          AdminStatus @default(active)
+  suspendedReason String?     @map("suspended_reason")
+  suspendedById   String?     @map("suspended_by_id") @db.Uuid
+  suspendedAt     DateTime?   @map("suspended_at")
+  lastLoginAt     DateTime?   @map("last_login_at")
+  createdById     String?     @map("created_by_id") @db.Uuid
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+
+  createdBy        AdminUser?      @relation("adminCreatedBy", fields: [createdById], references: [id])
+  createdAdmins    AdminUser[]     @relation("adminCreatedBy")
+  suspendedBy      AdminUser?      @relation("adminSuspendedBy", fields: [suspendedById], references: [id])
+  suspendedAdmins  AdminUser[]     @relation("adminSuspendedBy")
+  backupCodes      AdminBackupCode[]
+  sessions         AdminSession[]
+  actions          AdminAction[]
+  revokedSessions  AdminSession[]  @relation("adminRevokedBy")
+  resolvedDisputes Dispute[]       @relation("resolvedDisputes")
+
+  @@index([email])
+  @@map("admin_users")
+}
+
+model AdminBackupCode {
+  id        String    @id @default(uuid()) @db.Uuid
+  adminId   String    @map("admin_id") @db.Uuid
+  codeHash  String    @map("code_hash")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  admin AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId, usedAt])
+  @@map("admin_backup_codes")
+}
+
+model AdminSession {
+  id              String    @id @default(uuid()) @db.Uuid
+  adminId         String    @map("admin_id") @db.Uuid
+  expiresAt       DateTime  @map("expires_at")
+  lastUsedAt      DateTime  @default(now()) @map("last_used_at")
+  createdIp       String?   @map("created_ip")
+  createdUserAgent String?  @map("created_user_agent")
+  revokedAt       DateTime? @map("revoked_at")
+  revokedById     String?   @map("revoked_by_id") @db.Uuid
+  revokedReason   String?   @map("revoked_reason")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  admin     AdminUser  @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  revokedBy AdminUser? @relation("adminRevokedBy", fields: [revokedById], references: [id])
+
+  @@index([adminId, revokedAt])
+  @@index([expiresAt])
+  @@map("admin_sessions")
+}
+
+model AdminAction {
+  id           String   @id @default(uuid()) @db.Uuid
+  adminId      String?  @map("admin_id") @db.Uuid
+  action       String
+  targetType   String   @map("target_type")
+  targetId     String   @map("target_id") @db.Uuid
+  reason       String?
+  metadata     Json?
+  ipAddress    String?  @map("ip_address")
+  userAgent    String?  @map("user_agent")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  admin AdminUser? @relation(fields: [adminId], references: [id])
+
+  @@index([adminId, createdAt(sort: Desc)])
+  @@index([targetType, targetId, createdAt(sort: Desc)])
+  @@index([action, createdAt(sort: Desc)])
+  @@map("admin_actions")
+}
+

@@ -58,6 +58,13 @@ const schema = z.object({
 
   RESEND_API_KEY: z.string().optional(),
   RESEND_FROM_EMAIL: z.string().email().optional(),
+
+  // Admin app — Phase 1
+  ADMIN_COOKIE_NAME: z.string().default("ahia_admin_session"),
+  ADMIN_COOKIE_SECRET: z.string().min(32).optional(),
+  ADMIN_BOOTSTRAP_EMAIL: z.string().email().optional(),
+  ADMIN_BOOTSTRAP_PASSWORD: z.string().min(12).optional(),
+  ADMIN_TOTP_ISSUER: z.string().default("Ahia Admin"),
 });
 
 const parsed = schema.safeParse(process.env);

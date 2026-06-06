@@ -9,6 +9,7 @@ import { startBoostExpiry, stopBoostExpiry } from "./jobs/boostExpiry.js";
 import { startStoryExpiry, stopStoryExpiry } from "./jobs/storyExpiry.js";
 import { startPayoutSweep, stopPayoutSweep } from "./jobs/payoutSweep.js";
 import { startPaystackRecovery, stopPaystackRecovery } from "./jobs/paystackRecovery.js";
+import { bootstrapSuperAdminIfNeeded } from "./bootstrap/superAdmin.js";
 
 const app = createApp();
 const httpServer = createServer(app);
@@ -20,6 +21,11 @@ const server = httpServer.listen(env.PORT, () => {
     env: env.NODE_ENV,
   });
   void pingRedis();
+  void bootstrapSuperAdminIfNeeded().catch((err) =>
+    logger.error("bootstrap: super admin failed", {
+      message: err instanceof Error ? err.message : String(err),
+    }),
+  );
   startEscrowAutoRelease();
   startBoostExpiry();
   startStoryExpiry();

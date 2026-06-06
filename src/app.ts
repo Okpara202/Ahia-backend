@@ -29,6 +29,7 @@ import searchRoutes from "./modules/search/search.routes.js";
 import invoicesRoutes from "./modules/invoices/invoices.routes.js";
 import payoutsRoutes from "./modules/payouts/payouts.routes.js";
 import presenceRoutes from "./modules/presence/presence.routes.js";
+import adminRoutes from "./modules/admin/admin.routes.js";
 import { productsController } from "./modules/products/products.controller.js";
 import { followsController } from "./modules/follows/follows.controller.js";
 import { optionalAuth, requireAuth } from "./middleware/auth.js";
@@ -79,6 +80,7 @@ export function createApp() {
   app.use(invoicesRoutes);
   app.use(boostsRoutes);
   app.use("/discover", discoverRoutes);
+  app.use("/admin", adminRoutes);
   app.use("/users", usersRoutes);
   app.use("/payments", paymentsRoutes);
   app.use(payoutsRoutes);
