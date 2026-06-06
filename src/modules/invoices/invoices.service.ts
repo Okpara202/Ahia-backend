@@ -3,7 +3,11 @@ import { prisma } from "../../config/db.js";
 import { logger } from "../../config/logger.js";
 import { AppError, BadRequestError, NotFoundError } from "../../errors.js";
 import { paystack } from "../../integrations/paystack.js";
-import { broadcastToAdmins, broadcastToUser } from "../../realtime/socket.js";
+import {
+  broadcastToAdmins,
+  broadcastToConversation,
+  broadcastToUser,
+} from "../../realtime/socket.js";
 import { conversationsService } from "../conversations/conversations.service.js";
 import { conversationsRepo } from "../conversations/conversations.repo.js";
 import { formatMessageOut } from "../conversations/conversations.mapper.js";
@@ -219,6 +223,10 @@ export const invoicesService = {
       message: out,
     });
     broadcastToUser(convo.buyerId, "message:new", { conversationId, message: out });
+    broadcastToConversation(conversationId, "message:new", {
+      conversationId,
+      message: out,
+    });
 
     const seller = await prisma.user.findUnique({
       where: { id: convo.sellerId },

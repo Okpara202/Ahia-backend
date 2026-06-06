@@ -1,7 +1,7 @@
 import { prisma } from "../../config/db.js";
 import { AppError, ForbiddenError, NotFoundError } from "../../errors.js";
 import { uploadImageBuffer, uploadVoiceBuffer } from "../../integrations/cloudinary.js";
-import { broadcastToUser } from "../../realtime/socket.js";
+import { broadcastToConversation, broadcastToUser } from "../../realtime/socket.js";
 import { conversationsRepo } from "./conversations.repo.js";
 import type {
   EditTextInput,
@@ -162,6 +162,12 @@ async function persistMessage(args: {
   const refreshed = await conversationsRepo.findMessageById(message.id);
   const out = formatMessageOut(refreshed!, args.recipientId);
   broadcastToUser(args.recipientId, "message:new", {
+    conversationId: args.convoId,
+    message: out,
+  });
+  // Mirror to the conversation room so any admin watching a live dispute on
+  // this conversation sees buyer/seller replies in real time.
+  broadcastToConversation(args.convoId, "message:new", {
     conversationId: args.convoId,
     message: out,
   });

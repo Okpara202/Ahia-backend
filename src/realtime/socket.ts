@@ -38,6 +38,17 @@ async function validateAdminSession(sessionId: string) {
   return session.admin;
 }
 
+async function conversationHasActiveDispute(conversationId: string) {
+  const { prisma } = await import("../config/db.js");
+  const count = await prisma.dispute.count({
+    where: {
+      status: { in: ["open", "reviewing"] },
+      invoiceLine: { invoice: { conversationId } },
+    },
+  });
+  return count > 0;
+}
+
 export function initSocket(httpServer: HttpServer) {
   io = new IoServer(httpServer, {
     cors: { origin: env.CLIENT_URL, credentials: true },
@@ -76,6 +87,29 @@ export function initSocket(httpServer: HttpServer) {
         adminId: admin.id,
         socketId: socket.id,
       });
+
+      socket.on("admin:watch", async (payload: { conversationId?: string }) => {
+        const conversationId = payload?.conversationId;
+        if (!conversationId) return;
+        try {
+          const ok = await conversationHasActiveDispute(conversationId);
+          if (!ok) return;
+          socket.join(`conversation:${conversationId}`);
+        } catch (err) {
+          logger.warn("socket: admin:watch failed", {
+            adminId: admin.id,
+            conversationId,
+            message: err instanceof Error ? err.message : String(err),
+          });
+        }
+      });
+
+      socket.on("admin:unwatch", (payload: { conversationId?: string }) => {
+        const conversationId = payload?.conversationId;
+        if (!conversationId) return;
+        socket.leave(`conversation:${conversationId}`);
+      });
+
       socket.on("disconnect", (reason) => {
         logger.info("socket: admin disconnected", {
           adminId: admin.id,
@@ -234,6 +268,18 @@ export function broadcastToAdmins(event: string, payload: unknown) {
     return;
   }
   io.to("admins").emit(event, payload);
+}
+
+export function broadcastToConversation(
+  conversationId: string,
+  event: string,
+  payload: unknown,
+) {
+  if (!io) {
+    logger.warn("socket: broadcastToConversation attempted before init", { event });
+    return;
+  }
+  io.to(`conversation:${conversationId}`).emit(event, payload);
 }
 
 export function broadcastToOthers(

@@ -1,6 +1,6 @@
 import { prisma } from "../../config/db.js";
 import { logger } from "../../config/logger.js";
-import { BadRequestError, ForbiddenError, NotFoundError } from "../../errors.js";
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "../../errors.js";
 import { paystack } from "../../integrations/paystack.js";
 import { broadcastToUser } from "../../realtime/socket.js";
 import { notificationsService } from "../notifications/notifications.service.js";
@@ -79,7 +79,10 @@ export const disputesService = {
     const dispute = await disputesRepo.findById(id);
     if (!dispute) throw new NotFoundError("Dispute");
     if (dispute.status !== "open" && dispute.status !== "reviewing") {
-      throw new BadRequestError("Dispute already resolved");
+      throw new ConflictError(
+        "dispute_already_resolved",
+        "This dispute was resolved by another admin or by auto-resolution.",
+      );
     }
 
     const invoice = dispute.invoiceLine.invoice;
@@ -123,8 +126,9 @@ export const disputesService = {
       }
     });
     if (alreadyResolved) {
-      throw new BadRequestError(
-        "This line was already resolved by another action — no change made",
+      throw new ConflictError(
+        "dispute_already_resolved",
+        "This line was already resolved by another action — no change made.",
       );
     }
 

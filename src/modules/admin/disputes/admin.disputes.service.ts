@@ -4,7 +4,7 @@ import { AppError, NotFoundError } from "../../../errors.js";
 import { uploadImageBuffer } from "../../../integrations/cloudinary.js";
 import { assertFileKind } from "../../../middleware/mimeGuard.js";
 import { writeAudit } from "../../../lib/audit.js";
-import { broadcastToUser } from "../../../realtime/socket.js";
+import { broadcastToConversation, broadcastToUser } from "../../../realtime/socket.js";
 import { conversationsRepo } from "../../conversations/conversations.repo.js";
 import { formatMessageOut } from "../../conversations/conversations.mapper.js";
 import { disputesService } from "../../disputes/disputes.service.js";
@@ -191,6 +191,10 @@ export const adminDisputesService = {
         const sysOut = formatMessageOut(sysFull, admin.id);
         broadcastToUser(buyerId, "message:new", { conversationId, message: sysOut });
         broadcastToUser(sellerId, "message:new", { conversationId, message: sysOut });
+        broadcastToConversation(conversationId, "message:new", {
+          conversationId,
+          message: sysOut,
+        });
       }
     }
 
@@ -217,6 +221,10 @@ export const adminDisputesService = {
     if (out) {
       broadcastToUser(buyerId, "message:new", { conversationId, message: out });
       broadcastToUser(sellerId, "message:new", { conversationId, message: out });
+      broadcastToConversation(conversationId, "message:new", {
+        conversationId,
+        message: out,
+      });
     }
 
     await writeAudit({
