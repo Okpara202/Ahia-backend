@@ -63,7 +63,10 @@ const schema = z.object({
   ADMIN_COOKIE_NAME: z.string().default("ahia_admin_session"),
   ADMIN_COOKIE_SECRET: z.string().min(32).optional(),
   ADMIN_BOOTSTRAP_EMAIL: z.string().email().optional(),
-  ADMIN_BOOTSTRAP_PASSWORD: z.string().min(12).optional(),
+  // Temporary first-boot password — relaxed to min 6 so an operator can use
+  // a short throwaway string. The strict policy (12 chars + digit + symbol)
+  // applies the moment they change it via POST /admin/auth/change-password.
+  ADMIN_BOOTSTRAP_PASSWORD: z.string().min(6).optional(),
   ADMIN_TOTP_ISSUER: z.string().default("Ahia Admin"),
 });
 
