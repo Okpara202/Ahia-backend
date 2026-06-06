@@ -203,13 +203,15 @@ export const notificationRenderers = {
     };
   },
 
-  discoverCampaignStarted(args: { campaignId: string }): Rendered {
+  discoverCampaignStarted(args: { campaignId: string; postId: string }): Rendered {
     return {
       type: "discover_campaign_started",
       title: "Ad campaign live",
       body: "Your video is now playing in the Discover feed.",
-      link: `/seller/ads/${args.campaignId}`,
-      payload: { campaignId: args.campaignId },
+      // `/seller/ads/[id]` is post-keyed; route there by postId so the tap
+      // lands on the ad detail page, not 404.
+      link: `/seller/ads/${args.postId}`,
+      payload: { campaignId: args.campaignId, postId: args.postId },
     };
   },
 

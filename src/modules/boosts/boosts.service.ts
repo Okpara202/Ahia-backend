@@ -89,7 +89,7 @@ export const boostsService = {
     });
 
     return {
-      authorization_url: init.authorization_url,
+      authorizationUrl: init.authorization_url,
       reference: init.reference,
     };
   },

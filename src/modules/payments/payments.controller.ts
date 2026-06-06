@@ -37,22 +37,36 @@ async function verifyBoost(reference: string, userId: string): Promise<VerifyRes
     where: { paystackRef: reference },
     select: {
       id: true,
+      productId: true,
       product: { select: { shop: { select: { ownerId: true } } } },
     },
   });
   if (!boost) return { status: "pending" };
   if (boost.product.shop.ownerId !== userId) return { status: "pending" };
-  return { status: "success", next: "/seller/products", id: boost.id };
+  return {
+    status: "success",
+    next: `/seller/products?boosted=${boost.productId}`,
+    id: boost.id,
+  };
 }
 
 async function verifyDiscover(reference: string, userId: string): Promise<VerifyResult> {
   const campaign = await prisma.discoverCampaign.findUnique({
     where: { paystackRef: reference },
-    select: { id: true, post: { select: { shopId: true, shop: { select: { ownerId: true } } } } },
+    select: {
+      id: true,
+      postId: true,
+      post: { select: { shop: { select: { ownerId: true } } } },
+    },
   });
   if (!campaign) return { status: "pending" };
   if (campaign.post.shop.ownerId !== userId) return { status: "pending" };
-  return { status: "success", next: `/seller/ads/${campaign.id}`, id: campaign.id };
+  // `/seller/ads/[id]` is post-keyed on the frontend, so route by postId.
+  return {
+    status: "success",
+    next: `/seller/ads/${campaign.postId}`,
+    id: campaign.id,
+  };
 }
 
 export const paymentsController = {

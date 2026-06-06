@@ -292,7 +292,7 @@ export const discoverService = {
     });
 
     return {
-      authorization_url: init.authorization_url,
+      authorizationUrl: init.authorization_url,
       reference: init.reference,
     };
   },
@@ -395,7 +395,10 @@ export const discoverService = {
     broadcastToUser(userId, "discover:campaign_started", { campaign });
     await notificationsService.createForUser(
       userId,
-      notificationRenderers.discoverCampaignStarted({ campaignId: campaign.id }),
+      notificationRenderers.discoverCampaignStarted({
+        campaignId: campaign.id,
+        postId,
+      }),
     );
 
     return campaign;
