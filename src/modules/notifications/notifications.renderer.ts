@@ -280,7 +280,7 @@ export const notificationRenderers = {
       type: "follow",
       title: `${display} followed your shop`,
       body: "Open your followers list to say hi.",
-      link: "/seller/shop/followers",
+      link: "/seller/followers",
       payload: {
         followerId: args.followerId,
         followerHandle: args.followerHandle,

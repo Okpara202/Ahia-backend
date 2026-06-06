@@ -5,6 +5,7 @@ export const discoverRepo = {
   listOrganic(args: { take: number; cursor?: string; now: Date }) {
     return prisma.discoverPost.findMany({
       where: {
+        deletedAt: null,
         expiresAt: { gt: args.now },
         shop: { deletedAt: null },
       },
@@ -18,6 +19,7 @@ export const discoverRepo = {
   listActivePaid(now: Date, take: number) {
     return prisma.discoverPost.findMany({
       where: {
+        deletedAt: null,
         expiresAt: { gt: now },
         shop: { deletedAt: null },
         campaigns: {
@@ -57,11 +59,18 @@ export const discoverRepo = {
 
   listForOwner(args: { ownerId: string; take: number; cursor?: string }) {
     return prisma.discoverPost.findMany({
-      where: { shop: { ownerId: args.ownerId } },
+      where: { shop: { ownerId: args.ownerId }, deletedAt: null },
       orderBy: { createdAt: "desc" },
       take: args.take + 1,
       cursor: args.cursor ? { id: args.cursor } : undefined,
       skip: args.cursor ? 1 : 0,
+    });
+  },
+
+  findMostRecentCampaignForPost(postId: string) {
+    return prisma.discoverCampaign.findFirst({
+      where: { postId },
+      orderBy: { endsAt: "desc" },
     });
   },
 

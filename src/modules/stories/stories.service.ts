@@ -93,9 +93,29 @@ export const storiesService = {
     });
     if (!shop) throw new NotFoundError("Shop");
     const stories = await storiesRepo.listMineActive(shop.id, new Date());
-    return stories.map((s) =>
-      toStoryPayload(s, { viewed: true, includeViewCount: true }),
+
+    // viewCount is flushed to the DB every VIEW_FLUSH_EVERY views; until the
+    // threshold is hit, Redis holds the unflushed bumps. Surface max(DB, Redis)
+    // so sellers don't see "0 views" right after their first viewer.
+    const redisCounts = await Promise.all(
+      stories.map(async (s) => {
+        if (!redis) return 0;
+        try {
+          const raw = await redis.get(`story:views:${s.id}`);
+          return raw ? parseInt(raw, 10) : 0;
+        } catch {
+          return 0;
+        }
+      }),
     );
+
+    return stories.map((s, i) => {
+      const merged = Math.max(s.viewCount, redisCounts[i] ?? 0);
+      return toStoryPayload(
+        { ...s, viewCount: merged },
+        { viewed: true, includeViewCount: true },
+      );
+    });
   },
 
   async getById(id: string, viewerId?: string) {

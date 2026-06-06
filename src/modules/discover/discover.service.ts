@@ -214,7 +214,7 @@ export const discoverService = {
 
   async recordImpression(postId: string) {
     const post = await discoverRepo.findById(postId);
-    if (!post) return;
+    if (!post || post.deletedAt) return;
     await discoverRepo.incrementCounter(postId, "impressions");
     const now = new Date();
     const campaign = await discoverRepo.findActiveCampaignForPost(postId, now);
@@ -229,7 +229,7 @@ export const discoverService = {
 
   async recordClick(postId: string) {
     const post = await discoverRepo.findById(postId);
-    if (!post) return;
+    if (!post || post.deletedAt) return;
     await discoverRepo.incrementCounter(postId, "clicks");
     const now = new Date();
     const campaign = await discoverRepo.findActiveCampaignForPost(postId, now);
@@ -244,7 +244,7 @@ export const discoverService = {
 
   async recordSave(userId: string, postId: string) {
     const post = await discoverRepo.findById(postId);
-    if (!post) throw new NotFoundError("Post");
+    if (!post || post.deletedAt) throw new NotFoundError("Post");
     if (post.ctaType === "product") {
       const product = await prisma.product.findFirst({
         where: { id: post.ctaTargetId, deletedAt: null },
@@ -262,7 +262,7 @@ export const discoverService = {
     if (!plan) throw new BadRequestError("Invalid plan");
 
     const post = await discoverRepo.findById(input.postId);
-    if (!post) throw new NotFoundError("Discover post");
+    if (!post || post.deletedAt) throw new NotFoundError("Discover post");
 
     const shop = await prisma.shop.findUnique({ where: { id: post.shopId } });
     if (!shop || shop.ownerId !== userId) {
@@ -349,6 +349,17 @@ export const discoverService = {
         });
         return null;
       }
+      if (post.deletedAt) {
+        // Seller deleted the post between boost-init and Paystack callback.
+        // We've already taken their money but the post is gone; skip campaign
+        // creation so nothing reappears in the feed. Manual refund decision
+        // lives outside this handler.
+        logger.warn("paystack discover: post deleted before campaign creation", {
+          postId,
+          reference,
+        });
+        return null;
+      }
       const activeCampaign = await tx.discoverCampaign.findFirst({
         where: {
           postId,
@@ -394,6 +405,26 @@ export const discoverService = {
     return discoverRepo.listCampaignsForUser(userId);
   },
 
+  async getMyPostById(userId: string, postId: string) {
+    const post = await discoverRepo.findById(postId);
+    if (!post || post.deletedAt) throw new NotFoundError("Discover post");
+    const shop = await prisma.shop.findUnique({
+      where: { id: post.shopId },
+      select: { ownerId: true },
+    });
+    if (!shop || shop.ownerId !== userId) {
+      throw new ForbiddenError("Not your post");
+    }
+    const now = new Date();
+    const active = await discoverRepo.findActiveCampaignForPost(post.id, now);
+    const expired = post.expiresAt.getTime() <= now.getTime();
+    return {
+      ...post,
+      sponsored: !!active,
+      status: expired ? "expired" : active ? "boosted" : "organic",
+    };
+  },
+
   async listMyPosts(userId: string, query: ListMyPostsQuery) {
     const rows = await discoverRepo.listForOwner({
       ownerId: userId,
@@ -419,6 +450,88 @@ export const discoverService = {
     return { items, nextCursor };
   },
 
+  async getPostAnalytics(userId: string, postId: string) {
+    const post = await discoverRepo.findById(postId);
+    if (!post || post.deletedAt) throw new NotFoundError("Discover post");
+    const shop = await prisma.shop.findUnique({
+      where: { id: post.shopId },
+      select: { ownerId: true },
+    });
+    if (!shop || shop.ownerId !== userId) {
+      throw new ForbiddenError("Not your post");
+    }
+    const now = new Date();
+    const active = await discoverRepo.findActiveCampaignForPost(post.id, now);
+    // If there's no active campaign, fall back to the most recent ended one
+    // so the seller can review historical performance.
+    const latest =
+      active ?? (await discoverRepo.findMostRecentCampaignForPost(post.id));
+    const campaign = latest
+      ? await discoverRepo.findCampaignWithStats(latest.id)
+      : null;
+
+    return {
+      post: {
+        id: post.id,
+        shopId: post.shopId,
+        videoUrl: post.videoUrl,
+        posterUrl: post.posterUrl,
+        caption: post.caption,
+        impressions: post.impressions,
+        clicks: post.clicks,
+        saves: post.saves,
+        expiresAt: post.expiresAt.toISOString(),
+        createdAt: post.createdAt.toISOString(),
+      },
+      campaign: campaign
+        ? {
+            id: campaign.id,
+            plan: campaign.plan,
+            spend: Number(campaign.spend),
+            startsAt: campaign.startsAt.toISOString(),
+            endsAt: campaign.endsAt.toISOString(),
+            active: !!active,
+          }
+        : null,
+      daily: campaign
+        ? campaign.daily.map((d) => ({
+            date: d.date.toISOString().slice(0, 10),
+            impressions: d.impressions,
+            clicks: d.clicks,
+            spend: Number(d.spend),
+          }))
+        : [],
+    };
+  },
+
+  async deletePost(userId: string, postId: string) {
+    const post = await discoverRepo.findById(postId);
+    if (!post) throw new NotFoundError("Discover post");
+    const shop = await prisma.shop.findUnique({
+      where: { id: post.shopId },
+      select: { ownerId: true },
+    });
+    if (!shop || shop.ownerId !== userId) {
+      throw new ForbiddenError("Not your post");
+    }
+    if (post.deletedAt) return; // idempotent — already removed
+
+    const now = new Date();
+    // Cancel any currently-active campaign by ending it now. Past/expired
+    // campaigns are left as-is so the seller's analytics history survives.
+    // No refund — this is a seller-initiated delete per the spec.
+    await prisma.$transaction([
+      prisma.discoverPost.update({
+        where: { id: postId },
+        data: { deletedAt: now },
+      }),
+      prisma.discoverCampaign.updateMany({
+        where: { postId, startsAt: { lte: now }, endsAt: { gt: now } },
+        data: { endsAt: now },
+      }),
+    ]);
+  },
+
   async editPost(
     userId: string,
     postId: string,
@@ -426,7 +539,7 @@ export const discoverService = {
     posterBuffer: Buffer | undefined,
   ) {
     const post = await discoverRepo.findById(postId);
-    if (!post) throw new NotFoundError("Discover post");
+    if (!post || post.deletedAt) throw new NotFoundError("Discover post");
 
     const shop = await prisma.shop.findUnique({
       where: { id: post.shopId },

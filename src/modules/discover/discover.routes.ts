@@ -22,14 +22,19 @@ router.post("/posts/:id/impression", optionalAuth, discoverController.impression
 router.post("/posts/:id/click", optionalAuth, discoverController.click);
 
 router.post("/posts/:id/save", requireAuth, discoverController.save);
+// `/posts/me` must come BEFORE `/posts/:id` so Express doesn't match "me"
+// as a UUID param.
 router.get("/posts/me", requireAuth, discoverController.listMyPosts);
 router.post("/posts", requireAuth, postMedia, discoverController.createPost);
+router.get("/posts/:id/analytics", requireAuth, discoverController.postAnalytics);
+router.get("/posts/:id", requireAuth, discoverController.getMyPostById);
 router.patch(
   "/posts/:id",
   requireAuth,
   editMedia,
   discoverController.editPost,
 );
+router.delete("/posts/:id", requireAuth, discoverController.deletePost);
 
 router.post("/campaigns", requireAuth, discoverController.initCampaign);
 router.get("/campaigns/me", requireAuth, discoverController.listMyCampaigns);

@@ -15,7 +15,8 @@ const storyMedia = upload.fields([
 
 const router = Router();
 
-router.get("/shops/:id/stories", optionalAuth, storiesController.listForShop);
+// `me` routes must come BEFORE the `:id` route — otherwise Express matches
+// `/shops/:id/stories` with id="me" and the UUID validator rejects.
 router.get("/shops/me/stories", requireAuth, storiesController.listMine);
 router.post(
   "/shops/me/stories",
@@ -28,6 +29,7 @@ router.delete(
   requireAuth,
   storiesController.deleteMine,
 );
+router.get("/shops/:id/stories", optionalAuth, storiesController.listForShop);
 
 router.get("/stories/:id", optionalAuth, storiesController.getById);
 router.post("/stories/:id/view", optionalAuth, storiesController.recordView);

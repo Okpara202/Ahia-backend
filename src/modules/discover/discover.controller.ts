@@ -54,6 +54,27 @@ export const discoverController = {
     res.status(200).json(result);
   },
 
+  async getMyPostById(req: Request, res: Response) {
+    if (!req.user) throw new UnauthorizedError();
+    const { id } = postIdParam.parse(req.params);
+    const post = await discoverService.getMyPostById(req.user.id, id);
+    res.status(200).json({ post });
+  },
+
+  async postAnalytics(req: Request, res: Response) {
+    if (!req.user) throw new UnauthorizedError();
+    const { id } = postIdParam.parse(req.params);
+    const result = await discoverService.getPostAnalytics(req.user.id, id);
+    res.status(200).json(result);
+  },
+
+  async deletePost(req: Request, res: Response) {
+    if (!req.user) throw new UnauthorizedError();
+    const { id } = postIdParam.parse(req.params);
+    await discoverService.deletePost(req.user.id, id);
+    res.status(204).end();
+  },
+
   async editPost(req: Request, res: Response) {
     if (!req.user) throw new UnauthorizedError();
     const { id } = postIdParam.parse(req.params);
