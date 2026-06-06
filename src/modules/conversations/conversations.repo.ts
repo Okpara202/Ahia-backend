@@ -24,6 +24,7 @@ export const conversationParticipantsInclude = {
 
 export const messageInclude = {
   sender: { select: userSelect },
+  adminAuthor: { select: { id: true } },
   contextProduct: {
     select: {
       id: true,

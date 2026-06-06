@@ -439,17 +439,22 @@ export const discoverService = {
     const nextCursor = hasMore ? slice[slice.length - 1]?.id ?? null : null;
 
     const now = new Date();
-    const items = await Promise.all(
-      slice.map(async (post) => {
-        const active = await discoverRepo.findActiveCampaignForPost(post.id, now);
-        const expired = post.expiresAt.getTime() <= now.getTime();
-        return {
-          ...post,
-          sponsored: !!active,
-          status: expired ? "expired" : active ? "boosted" : "organic",
-        };
-      }),
+    // Batch the active-campaign lookup into ONE query instead of N. Below
+    // ~10 posts the difference is invisible; above ~50 it's the difference
+    // between a 200ms and a 2s response.
+    const activeIds = await discoverRepo.findPostsWithActiveCampaigns(
+      slice.map((p) => p.id),
+      now,
     );
+    const items = slice.map((post) => {
+      const active = activeIds.has(post.id);
+      const expired = post.expiresAt.getTime() <= now.getTime();
+      return {
+        ...post,
+        sponsored: active,
+        status: expired ? "expired" : active ? "boosted" : "organic",
+      };
+    });
     return { items, nextCursor };
   },
 

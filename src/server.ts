@@ -9,6 +9,7 @@ import { startBoostExpiry, stopBoostExpiry } from "./jobs/boostExpiry.js";
 import { startStoryExpiry, stopStoryExpiry } from "./jobs/storyExpiry.js";
 import { startPayoutSweep, stopPayoutSweep } from "./jobs/payoutSweep.js";
 import { startPaystackRecovery, stopPaystackRecovery } from "./jobs/paystackRecovery.js";
+import { startDisputeAutoResolve, stopDisputeAutoResolve } from "./jobs/disputeAutoResolve.js";
 import { bootstrapSuperAdminIfNeeded } from "./bootstrap/superAdmin.js";
 
 const app = createApp();
@@ -31,6 +32,7 @@ const server = httpServer.listen(env.PORT, () => {
   startStoryExpiry();
   startPayoutSweep();
   startPaystackRecovery();
+  startDisputeAutoResolve();
 });
 
 const shutdown = (signal: string) => {
@@ -40,6 +42,7 @@ const shutdown = (signal: string) => {
   stopStoryExpiry();
   stopPayoutSweep();
   stopPaystackRecovery();
+  stopDisputeAutoResolve();
   server.close(() => {
     void redis?.quit().finally(() => process.exit(0));
   });

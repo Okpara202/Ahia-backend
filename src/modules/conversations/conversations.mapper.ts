@@ -106,10 +106,25 @@ export function formatMessageOut(message: MessageRow, viewerId: string) {
       }
     : undefined;
 
+  // Admin-authored messages render as "Ahia Support" — see Phase 2 design.
+  // Pseudonymous on purpose: hides which individual admin handled the dispute
+  // from the buyer/seller. The audit log keeps the real admin id.
+  const isAdminAuthored = !!message.adminAuthorId;
+  const senderType: "user" | "admin" | "system" = isAdminAuthored
+    ? "admin"
+    : message.senderId
+      ? "user"
+      : "system";
+  const senderName: string | null = isAdminAuthored
+    ? "Ahia Support"
+    : null; // user name lives on the participant record; frontends resolve it from there
+
   const base = {
     id: message.id,
     conversationId: message.conversationId,
     senderId: message.senderId,
+    senderType,
+    ...(senderName ? { senderName } : {}),
     type: message.type,
     content: message.content ?? null,
     createdAt: message.createdAt.toISOString(),

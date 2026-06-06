@@ -74,6 +74,26 @@ export const discoverRepo = {
     });
   },
 
+  /**
+   * Batched lookup — given many post IDs, return only those that have an
+   * active campaign right now. Replaces N+1 with one IN query.
+   */
+  async findPostsWithActiveCampaigns(
+    postIds: string[],
+    now: Date,
+  ): Promise<Set<string>> {
+    if (postIds.length === 0) return new Set();
+    const rows = await prisma.discoverCampaign.findMany({
+      where: {
+        postId: { in: postIds },
+        startsAt: { lte: now },
+        endsAt: { gte: now },
+      },
+      select: { postId: true },
+    });
+    return new Set(rows.map((r) => r.postId));
+  },
+
   updatePost(id: string, data: Prisma.DiscoverPostUpdateInput) {
     return prisma.discoverPost.update({ where: { id }, data });
   },

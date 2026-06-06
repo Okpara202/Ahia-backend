@@ -1,6 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
 import { requireAuth } from "../../middleware/auth.js";
+import { idempotencyGuard } from "../../middleware/idempotency.js";
 import { invoicesController } from "./invoices.controller.js";
 
 const evidenceUpload = multer({
@@ -17,7 +18,12 @@ const router = Router();
 
 // Flat canonical routes
 router.post("/invoices/:invoiceId/cancel", requireAuth, invoicesController.cancel);
-router.post("/invoices/:invoiceId/pay", requireAuth, invoicesController.pay);
+router.post(
+  "/invoices/:invoiceId/pay",
+  requireAuth,
+  idempotencyGuard,
+  invoicesController.pay,
+);
 router.post("/invoice-lines/:lineId/confirm", requireAuth, invoicesController.confirmLine);
 router.post("/invoice-lines/:lineId/extend", requireAuth, invoicesController.extendLine);
 router.post(
@@ -36,6 +42,7 @@ router.post(
 router.post(
   "/conversations/:conversationId/invoices/:invoiceId/pay",
   requireAuth,
+  idempotencyGuard,
   invoicesController.pay,
 );
 router.post(

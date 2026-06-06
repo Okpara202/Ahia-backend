@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 import type { Response, CookieOptions } from "express";
 import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
-import { ConflictError, UnauthorizedError } from "../../errors.js";
+import { AppError, ConflictError, UnauthorizedError } from "../../errors.js";
 import { prisma } from "../../config/db.js";
 import { authRepo } from "./auth.repo.js";
 import type { LoginInput, SignupInput } from "./auth.schemas.js";
@@ -67,6 +67,13 @@ export const authService = {
     const ok = await bcrypt.compare(input.password, user.passwordHash);
     if (!ok) {
       throw new UnauthorizedError("Email or password is incorrect", "INVALID_CREDENTIALS");
+    }
+    if (user.status === "suspended") {
+      throw new AppError(
+        403,
+        "account_suspended",
+        user.suspendedReason ?? "Your account has been suspended.",
+      );
     }
     return { user: publicUser(user), token: signSession(user) };
   },

@@ -144,6 +144,41 @@ export const notificationRenderers = {
     };
   },
 
+  disputeAutoResolved(args: {
+    recipient: "buyer" | "seller";
+    lineName: string;
+    amount: number | string;
+    conversationId: string;
+    invoiceId: string;
+    lineId: string;
+    disputeId: string;
+  }): Rendered {
+    const link =
+      args.recipient === "seller"
+        ? `/seller/inbox/${args.conversationId}`
+        : `/inbox/${args.conversationId}`;
+    const body =
+      args.recipient === "buyer"
+        ? `${args.lineName} · ₦${formatNaira(args.amount)} · We refunded you automatically because the seller didn't respond in 14 days.`
+        : `${args.lineName} · ₦${formatNaira(args.amount)} · Auto-resolved after 14 days. ₦${formatNaira(args.amount)} refunded to buyer.`;
+    return {
+      type: "dispute_auto_resolved",
+      title:
+        args.recipient === "buyer"
+          ? "Dispute resolved automatically — Refunded"
+          : "Dispute auto-resolved — Refunded",
+      body,
+      link,
+      payload: {
+        disputeId: args.disputeId,
+        lineId: args.lineId,
+        invoiceId: args.invoiceId,
+        resolution: "refunded_to_buyer",
+        auto: true,
+      },
+    };
+  },
+
   disputeResolved(args: {
     recipient: "buyer" | "seller";
     lineName: string;

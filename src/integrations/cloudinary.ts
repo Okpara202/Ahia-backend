@@ -158,13 +158,34 @@ export async function destroyAsset(
     logger.warn("cloudinary: destroyAsset skipped — not configured", { publicId });
     return;
   }
-  try {
-    await cloudinary.uploader.destroy(publicId, { resource_type: resourceType, invalidate: true });
-  } catch (err) {
-    logger.error("cloudinary: destroyAsset failed", {
-      publicId,
-      message: err instanceof Error ? err.message : String(err),
-    });
+  // Retry with exponential backoff so transient Cloudinary blips don't
+  // leave orphan assets. Three attempts with 1s, 2s, 4s waits.
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      await cloudinary.uploader.destroy(publicId, {
+        resource_type: resourceType,
+        invalidate: true,
+      });
+      return;
+    } catch (err) {
+      if (attempt === MAX_ATTEMPTS) {
+        logger.error("cloudinary: destroyAsset failed (final attempt)", {
+          publicId,
+          attempt,
+          message: err instanceof Error ? err.message : String(err),
+        });
+        return;
+      }
+      const backoffMs = Math.pow(2, attempt - 1) * 1000;
+      logger.warn("cloudinary: destroyAsset attempt failed, retrying", {
+        publicId,
+        attempt,
+        backoffMs,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+    }
   }
 }
 

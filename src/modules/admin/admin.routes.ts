@@ -1,7 +1,19 @@
 import { Router } from "express";
+import multer from "multer";
 import rateLimit from "express-rate-limit";
 import { requireAdmin } from "../../middleware/adminAuth.js";
 import { adminAuthController } from "./auth/admin.controller.js";
+import { adminDisputesController } from "./disputes/admin.disputes.controller.js";
+import { adminUsersController } from "./users/admin.users.controller.js";
+import { adminShopsController } from "./shops/admin.shops.controller.js";
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+const disputeMessageMedia = upload.fields([
+  { name: "image_file", maxCount: 1 },
+]);
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -36,5 +48,36 @@ router.post(
   requireAdmin(),
   adminAuthController.changePassword,
 );
+
+// ---- Disputes ----
+router.get("/disputes", requireAdmin(), adminDisputesController.list);
+router.get("/disputes/:id", requireAdmin(), adminDisputesController.getById);
+router.post(
+  "/disputes/:id/messages",
+  requireAdmin(),
+  disputeMessageMedia,
+  adminDisputesController.postMessage,
+);
+router.post(
+  "/disputes/:id/resolve",
+  requireAdmin(),
+  adminDisputesController.resolve,
+);
+
+// ---- Users ----
+router.get("/users", requireAdmin(), adminUsersController.list);
+router.get("/users/:id", requireAdmin(), adminUsersController.getById);
+router.post("/users/:id/suspend", requireAdmin(), adminUsersController.suspend);
+router.post("/users/:id/restore", requireAdmin(), adminUsersController.restore);
+
+// ---- Shops ----
+router.get("/shops", requireAdmin(), adminShopsController.list);
+router.get("/shops/:id", requireAdmin(), adminShopsController.getById);
+router.post(
+  "/shops/:id/deactivate",
+  requireAdmin(),
+  adminShopsController.deactivate,
+);
+router.post("/shops/:id/restore", requireAdmin(), adminShopsController.restore);
 
 export default router;

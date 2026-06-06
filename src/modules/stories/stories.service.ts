@@ -97,17 +97,22 @@ export const storiesService = {
     // viewCount is flushed to the DB every VIEW_FLUSH_EVERY views; until the
     // threshold is hit, Redis holds the unflushed bumps. Surface max(DB, Redis)
     // so sellers don't see "0 views" right after their first viewer.
-    const redisCounts = await Promise.all(
-      stories.map(async (s) => {
-        if (!redis) return 0;
-        try {
-          const raw = await redis.get(`story:views:${s.id}`);
-          return raw ? parseInt(raw, 10) : 0;
-        } catch {
-          return 0;
+    // Batched via a single MGET — one round-trip instead of N.
+    const redisCounts: number[] = new Array(stories.length).fill(0);
+    if (redis && stories.length > 0) {
+      try {
+        const keys = stories.map((s) => `story:views:${s.id}`);
+        const raw = await redis.mget(...keys);
+        for (let i = 0; i < raw.length; i++) {
+          const v = raw[i];
+          redisCounts[i] = v ? parseInt(v, 10) : 0;
         }
-      }),
-    );
+      } catch (err) {
+        logger.warn("stories: redis mget failed in listMine", {
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
 
     return stories.map((s, i) => {
       const merged = Math.max(s.viewCount, redisCounts[i] ?? 0);

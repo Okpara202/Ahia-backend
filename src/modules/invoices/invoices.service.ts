@@ -3,7 +3,7 @@ import { prisma } from "../../config/db.js";
 import { logger } from "../../config/logger.js";
 import { AppError, BadRequestError, NotFoundError } from "../../errors.js";
 import { paystack } from "../../integrations/paystack.js";
-import { broadcastToUser } from "../../realtime/socket.js";
+import { broadcastToAdmins, broadcastToUser } from "../../realtime/socket.js";
 import { conversationsService } from "../conversations/conversations.service.js";
 import { conversationsRepo } from "../conversations/conversations.repo.js";
 import { formatMessageOut } from "../conversations/conversations.mapper.js";
@@ -502,6 +502,17 @@ export const invoicesService = {
       invoiceId: invoice.id,
       conversationId: invoice.conversationId,
       disputeId: dispute.id,
+    });
+
+    // Notify admins so their queue page can update in real time.
+    broadcastToAdmins("dispute:created", {
+      disputeId: dispute.id,
+      lineId,
+      invoiceId: invoice.id,
+      conversationId: invoice.conversationId,
+      raisedAt: dispute.createdAt.toISOString(),
+      amount: Number(line.unitPrice) * line.quantity,
+      reason: dispute.reason,
     });
 
     const buyerForDispute = await prisma.user.findUnique({

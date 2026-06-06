@@ -18,24 +18,73 @@ function parseSessionCookie(raw: string | undefined): string | undefined {
   return undefined;
 }
 
+function parseAdminCookie(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const cookieName = env.ADMIN_COOKIE_NAME;
+  for (const part of raw.split(";")) {
+    const [k, v] = part.trim().split("=");
+    if (k === cookieName && v) return decodeURIComponent(v);
+  }
+  return undefined;
+}
+
+async function validateAdminSession(sessionId: string) {
+  const { adminRepo } = await import("../modules/admin/auth/admin.repo.js");
+  const session = await adminRepo.findActiveSession(sessionId);
+  if (!session) return null;
+  if (session.admin.status === "suspended" || !session.admin.totpEnabled) {
+    return null;
+  }
+  return session.admin;
+}
+
 export function initSocket(httpServer: HttpServer) {
   io = new IoServer(httpServer, {
     cors: { origin: env.CLIENT_URL, credentials: true },
   });
 
-  io.use((socket, next) => {
+  io.use(async (socket, next) => {
+    const cookie = socket.handshake.headers.cookie;
+    // Try the user-app cookie first (most traffic).
     try {
-      const token = parseSessionCookie(socket.handshake.headers.cookie);
-      if (!token) return next(new Error("UNAUTHORIZED"));
-      const payload = jwt.verify(token, env.JWT_SECRET) as SessionUser;
-      socket.data.user = payload;
-      next();
+      const token = parseSessionCookie(cookie);
+      if (token) {
+        const payload = jwt.verify(token, env.JWT_SECRET) as SessionUser;
+        socket.data.user = payload;
+        return next();
+      }
     } catch {
-      next(new Error("UNAUTHORIZED"));
+      // Fall through and try admin cookie.
     }
+    // Admin app cookie — DB-backed session, not a JWT.
+    const adminSessionId = parseAdminCookie(cookie);
+    if (adminSessionId) {
+      const admin = await validateAdminSession(adminSessionId);
+      if (admin) {
+        socket.data.admin = { id: admin.id, role: admin.role };
+        return next();
+      }
+    }
+    next(new Error("UNAUTHORIZED"));
   });
 
   io.on("connection", (socket: Socket) => {
+    const admin = socket.data.admin as { id: string; role: string } | undefined;
+    if (admin) {
+      socket.join("admins");
+      logger.info("socket: admin connected", {
+        adminId: admin.id,
+        socketId: socket.id,
+      });
+      socket.on("disconnect", (reason) => {
+        logger.info("socket: admin disconnected", {
+          adminId: admin.id,
+          socketId: socket.id,
+          reason,
+        });
+      });
+      return;
+    }
     const user = socket.data.user as SessionUser | undefined;
     if (!user) {
       socket.disconnect(true);
@@ -177,6 +226,14 @@ export function broadcastToUser(userId: string, event: string, payload: unknown)
     return;
   }
   io.to(`user:${userId}`).emit(event, payload);
+}
+
+export function broadcastToAdmins(event: string, payload: unknown) {
+  if (!io) {
+    logger.warn("socket: broadcastToAdmins attempted before init", { event });
+    return;
+  }
+  io.to("admins").emit(event, payload);
 }
 
 export function broadcastToOthers(

@@ -250,6 +250,7 @@ model Message {
   id                     String      @id @default(uuid()) @db.Uuid
   conversationId         String      @map("conversation_id") @db.Uuid
   senderId               String?     @map("sender_id") @db.Uuid
+  adminAuthorId          String?     @map("admin_author_id") @db.Uuid
   type                   MessageType
   content                String?
   voiceUrl               String?     @map("voice_url")
@@ -267,6 +268,7 @@ model Message {
 
   conversation       Conversation     @relation("conversationMessages", fields: [conversationId], references: [id], onDelete: Cascade)
   sender             User?            @relation(fields: [senderId], references: [id])
+  adminAuthor        AdminUser?       @relation("adminAuthoredMessages", fields: [adminAuthorId], references: [id])
   invoice            Invoice?         @relation(fields: [invoiceId], references: [id])
   contextProduct     Product?         @relation("contextProduct", fields: [contextProductId], references: [id])
   storyContextStory  Story?           @relation("storyContextMessages", fields: [storyContextStoryId], references: [id])
@@ -276,6 +278,7 @@ model Message {
 
   @@index([conversationId, createdAt])
   @@index([storyContextStoryId])
+  @@index([adminAuthorId])
   @@map("messages")
 }
 
@@ -673,6 +676,7 @@ model AdminUser {
   actions          AdminAction[]
   revokedSessions  AdminSession[]  @relation("adminRevokedBy")
   resolvedDisputes Dispute[]       @relation("resolvedDisputes")
+  authoredMessages Message[]       @relation("adminAuthoredMessages")
 
   @@index([email])
   @@map("admin_users")
