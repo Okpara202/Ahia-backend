@@ -23,6 +23,9 @@ export const resolveDisputeSchema = z.object({
 
 export const postAdminMessageSchema = z.object({
   content: z.string().max(4000).optional(),
+  // Required only when audio_file is present. Mirrors the user-side
+  // sendVoiceSchema (100ms to 3min).
+  durationMs: z.coerce.number().int().min(100).max(3 * 60 * 1000).optional(),
 });
 
 export type ListDisputesQuery = z.infer<typeof listDisputesQuery>;

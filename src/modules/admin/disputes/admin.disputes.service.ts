@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { prisma } from "../../../config/db.js";
 import { AppError, NotFoundError } from "../../../errors.js";
-import { uploadImageBuffer } from "../../../integrations/cloudinary.js";
+import { uploadImageBuffer, uploadVoiceBuffer } from "../../../integrations/cloudinary.js";
 import { assertFileKind } from "../../../middleware/mimeGuard.js";
 import { writeAudit } from "../../../lib/audit.js";
 import { broadcastToConversation, broadcastToUser } from "../../../realtime/socket.js";
@@ -80,9 +80,11 @@ export const adminDisputesService = {
     );
     const out = messages.map((m) => formatMessageOut(m, admin.id));
 
-    const [prevByBuyer, prevBySeller] = await Promise.all([
+    const [prevByBuyer, prevBySeller, wonByBuyer, wonBySeller] = await Promise.all([
       adminDisputesRepo.countByBuyer(invoice.buyer.id, disputeId),
       adminDisputesRepo.countBySeller(invoice.seller.id, disputeId),
+      adminDisputesRepo.countWonByBuyer(invoice.buyer.id, disputeId),
+      adminDisputesRepo.countWonBySeller(invoice.seller.id, disputeId),
     ]);
 
     // Audit read AFTER successfully assembling — don't log if we 404 / 403.
@@ -117,6 +119,7 @@ export const adminDisputesService = {
         quantity: line.quantity,
         unitPrice: Number(line.unitPrice),
         status: line.status,
+        resolvedBy: line.resolvedBy,
         product: line.product
           ? { id: line.product.id, name: line.product.name, cover: line.product.cover }
           : null,
@@ -127,6 +130,7 @@ export const adminDisputesService = {
         totalAmount: Number(invoice.totalAmount),
         status: invoice.status,
         paystackRef: invoice.paystackRef,
+        paidAt: invoice.paidAt?.toISOString() ?? null,
         lines: invoice.lines.map((l) => ({
           id: l.id,
           name: l.name,
@@ -134,6 +138,15 @@ export const adminDisputesService = {
           unitPrice: Number(l.unitPrice),
           kind: l.kind,
           status: l.status,
+          resolvedBy: l.resolvedBy,
+          coverUrl: l.product?.cover ?? null,
+          dispute: l.dispute
+            ? {
+                id: l.dispute.id,
+                status: l.dispute.status,
+                raisedAt: l.dispute.createdAt.toISOString(),
+              }
+            : null,
         })),
       },
       buyer: invoice.buyer,
@@ -143,6 +156,8 @@ export const adminDisputesService = {
       counts: {
         previousDisputesByBuyer: prevByBuyer,
         previousDisputesBySeller: prevBySeller,
+        previousDisputesWonByBuyer: wonByBuyer,
+        previousDisputesWonBySeller: wonBySeller,
       },
     };
   },
@@ -151,14 +166,19 @@ export const adminDisputesService = {
     admin: AdminUser,
     disputeId: string,
     input: PostAdminMessageInput,
-    imageBuffer: Buffer | undefined,
+    media: { imageBuffer?: Buffer; audioBuffer?: Buffer },
     ip?: string,
     userAgent?: string,
   ) {
     const hasText = !!input.content && input.content.trim().length > 0;
-    const hasImage = !!imageBuffer;
-    if (!hasText && !hasImage) {
-      throw new AppError(400, "empty_message", "Message must include text or an image.");
+    const hasImage = !!media.imageBuffer;
+    const hasAudio = !!media.audioBuffer;
+    if (!hasText && !hasImage && !hasAudio) {
+      throw new AppError(
+        400,
+        "empty_message",
+        "Message must include text, an image, or a voice note.",
+      );
     }
 
     const dispute = await adminDisputesRepo.findById(disputeId);
@@ -198,22 +218,38 @@ export const adminDisputesService = {
       }
     }
 
-    // Upload image if present
     let imageUrl: string | undefined;
+    let voiceUrl: string | undefined;
     if (hasImage) {
-      assertFileKind(imageBuffer!, "image", "image_file");
-      imageUrl = await uploadImageBuffer(imageBuffer!, {
+      assertFileKind(media.imageBuffer!, "image", "image_file");
+      imageUrl = await uploadImageBuffer(media.imageBuffer!, {
         folder: `ahia/admin/messages/${conversationId}`,
+        publicId: crypto.randomUUID(),
+      });
+    } else if (hasAudio) {
+      // No assertFileKind() for audio — frontend voice is webm/opus (EBML
+      // container) which our sniffer labels as "video"; user-side voice
+      // upload punts the check for the same reason. Cloudinary rejects
+      // garbage downstream.
+      voiceUrl = await uploadVoiceBuffer(media.audioBuffer!, {
+        folder: `ahia/admin/voice/${conversationId}`,
         publicId: crypto.randomUUID(),
       });
     }
 
+    const messageType: "image" | "voice" | "text" = hasImage
+      ? "image"
+      : hasAudio
+        ? "voice"
+        : "text";
     const message = await conversationsRepo.createMessage({
       conversation: { connect: { id: conversationId } },
       adminAuthor: { connect: { id: admin.id } },
-      type: hasImage ? "image" : "text",
+      type: messageType,
       content: hasText ? input.content : null,
       imageUrl,
+      voiceUrl,
+      voiceDurationMs: hasAudio ? input.durationMs : undefined,
     });
     await conversationsRepo.touchConversation(conversationId, message.id);
     const full = await conversationsRepo.findMessageById(message.id);
@@ -229,12 +265,12 @@ export const adminDisputesService = {
 
     await writeAudit({
       adminId: admin.id,
-      action: "read_dispute_messages",
+      action: "post_admin_message",
       targetType: "dispute",
       targetId: disputeId,
       ip,
       userAgent,
-      metadata: { postedMessageId: message.id, hasImage },
+      metadata: { postedMessageId: message.id, hasImage, hasAudio },
     });
 
     return out;

@@ -70,10 +70,14 @@ export const invoicesRepo = {
     });
   },
 
-  setLineStatus(id: string, status: "released" | "refunded") {
+  setLineStatus(
+    id: string,
+    status: "released" | "refunded",
+    resolvedBy: "buyer" | "auto" | "admin" | "seller",
+  ) {
     return prisma.invoiceLine.update({
       where: { id },
-      data: { status, resolvedAt: new Date() },
+      data: { status, resolvedBy, resolvedAt: new Date() },
     });
   },
 

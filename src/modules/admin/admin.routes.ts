@@ -15,6 +15,7 @@ const upload = multer({
 });
 const disputeMessageMedia = upload.fields([
   { name: "image_file", maxCount: 1 },
+  { name: "audio_file", maxCount: 1 },
 ]);
 
 const loginLimiter = rateLimit({

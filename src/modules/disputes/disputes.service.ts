@@ -113,7 +113,7 @@ export const disputesService = {
       });
       await tx.invoiceLine.update({
         where: { id: lineId },
-        data: { status: lineStatus, resolvedAt: new Date() },
+        data: { status: lineStatus, resolvedBy: "admin", resolvedAt: new Date() },
       });
       if (lineStatus === "released") {
         const credit = Number(lineRow.sellerPayoutAmount);

@@ -99,7 +99,7 @@ async function resolveOne(d: Awaited<ReturnType<typeof findOverdueDisputes>>[num
     });
     await tx.invoiceLine.update({
       where: { id: line.id },
-      data: { status: "refunded", resolvedAt: new Date() },
+      data: { status: "refunded", resolvedBy: "auto", resolvedAt: new Date() },
     });
   });
 

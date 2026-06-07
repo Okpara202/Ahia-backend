@@ -445,7 +445,7 @@ export const invoicesService = {
       throw new BadRequestError("Invoice is not in a payable state");
     }
 
-    await invoicesRepo.setLineStatus(lineId, "released");
+    await invoicesRepo.setLineStatus(lineId, "released", "buyer");
     await creditSellerForLine(invoice.sellerId, line.id, Number(line.sellerPayoutAmount));
     const invoiceStatus = await recomputeInvoiceStatus(invoice.id);
 
@@ -611,7 +611,7 @@ export const invoicesBackground = {
   async autoReleaseLine(lineId: string) {
     const line = await invoicesRepo.findLine(lineId);
     if (!line || line.status !== "pending") return;
-    await invoicesRepo.setLineStatus(lineId, "released");
+    await invoicesRepo.setLineStatus(lineId, "released", "auto");
     await creditSellerForLine(line.invoice.sellerId, line.id, Number(line.sellerPayoutAmount));
     const invoiceStatus = await recomputeInvoiceStatus(line.invoice.id);
     await broadcastInvoiceEvent(line.invoice.buyerId, line.invoice.sellerId, "invoice:line_confirmed", {

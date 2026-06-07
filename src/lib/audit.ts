@@ -7,6 +7,7 @@ export type AuditAction =
   | "login_failed"
   | "logout"
   | "read_dispute_messages"
+  | "post_admin_message"
   | "resolve_dispute"
   | "auto_resolve_dispute"
   | "suspend_user"

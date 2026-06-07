@@ -9,13 +9,16 @@ import {
 } from "./admin.disputes.schemas.js";
 import { adminDisputesService } from "./admin.disputes.service.js";
 
-function getImageBuffer(req: Request): Buffer | undefined {
+function getFileBuffer(
+  req: Request,
+  field: "image_file" | "audio_file",
+): Buffer | undefined {
   const single = req.file as Express.Multer.File | undefined;
-  if (single) return single.buffer;
+  if (single && single.fieldname === field) return single.buffer;
   const files = req.files as
     | { [field: string]: Express.Multer.File[] | undefined }
     | undefined;
-  return files?.image_file?.[0]?.buffer;
+  return files?.[field]?.[0]?.buffer;
 }
 
 export const adminDisputesController = {
@@ -42,17 +45,29 @@ export const adminDisputesController = {
     if (!req.admin) throw new UnauthorizedError();
     const { id } = disputeIdParam.parse(req.params);
     const input = postAdminMessageSchema.parse(req.body);
-    const buffer = getImageBuffer(req);
-    if (!input.content && !buffer) {
-      throw new ValidationError("Message must include text or an image.", {
-        content: "Required when no image is sent",
+    const imageBuffer = getFileBuffer(req, "image_file");
+    const audioBuffer = getFileBuffer(req, "audio_file");
+    if (audioBuffer && imageBuffer) {
+      throw new ValidationError(
+        "Send either an image or a voice note, not both.",
+      );
+    }
+    if (audioBuffer && !input.durationMs) {
+      throw new ValidationError("durationMs is required with audio_file.", {
+        durationMs: "Required",
       });
+    }
+    if (!input.content && !imageBuffer && !audioBuffer) {
+      throw new ValidationError(
+        "Message must include text, an image, or a voice note.",
+        { content: "Required when no media is sent" },
+      );
     }
     const message = await adminDisputesService.postMessage(
       req.admin,
       id,
       input,
-      buffer,
+      { imageBuffer, audioBuffer },
       ipFromRequest(req),
       uaFromRequest(req),
     );

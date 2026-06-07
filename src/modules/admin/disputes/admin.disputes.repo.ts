@@ -70,6 +70,31 @@ export const adminDisputesRepo = {
     });
   },
 
+  // "Won" = the resolution went in this party's favour. For a buyer, that's
+  // a refund; for a seller, that's a release. Lets the admin spot serial
+  // refund-seekers vs serial seller wrongdoers at a glance.
+  countWonByBuyer(buyerId: string, excludeId?: string) {
+    return prisma.dispute.count({
+      where: {
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+        status: "resolved",
+        resolution: "refunded_to_buyer",
+        invoiceLine: { invoice: { buyerId } },
+      },
+    });
+  },
+
+  countWonBySeller(sellerId: string, excludeId?: string) {
+    return prisma.dispute.count({
+      where: {
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+        status: "resolved",
+        resolution: "released_to_seller",
+        invoiceLine: { invoice: { sellerId } },
+      },
+    });
+  },
+
   findById(id: string) {
     return prisma.dispute.findUnique({
       where: { id },
@@ -101,7 +126,15 @@ export const adminDisputesRepo = {
                     },
                   },
                 },
-                lines: { orderBy: { position: "asc" } },
+                lines: {
+                  orderBy: { position: "asc" },
+                  include: {
+                    product: { select: { cover: true } },
+                    dispute: {
+                      select: { id: true, status: true, createdAt: true },
+                    },
+                  },
+                },
               },
             },
           },

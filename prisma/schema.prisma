@@ -59,6 +59,13 @@ enum InvoiceLineStatus {
   refunded
 }
 
+enum InvoiceLineResolvedBy {
+  buyer
+  auto
+  admin
+  seller
+}
+
 enum DisputeStatus {
   open
   reviewing
@@ -346,6 +353,7 @@ model InvoiceLine {
   unitPrice          Decimal           @map("unit_price") @db.Decimal(12, 2)
   sellerPayoutAmount Decimal           @default(0) @map("seller_payout_amount") @db.Decimal(12, 2)
   status             InvoiceLineStatus @default(pending)
+  resolvedBy         InvoiceLineResolvedBy? @map("resolved_by")
   position           Int               @default(0)
   resolvedAt         DateTime?         @map("resolved_at")
   autoReleaseAt      DateTime?         @map("auto_release_at")
