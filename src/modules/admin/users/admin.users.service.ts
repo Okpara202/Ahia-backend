@@ -24,7 +24,7 @@ function publicListRow(row: Awaited<ReturnType<typeof adminUsersRepo.list>>[numb
       name: s.name,
       handle: s.handle,
       isActive: s.isActive,
-      adminSuspended: s.adminSuspendedAt !== null,
+      deactivated: s.adminSuspendedAt !== null,
     })),
   };
 }
@@ -65,7 +65,7 @@ export const adminUsersService = {
         name: s.name,
         handle: s.handle,
         isActive: s.isActive,
-        adminSuspended: s.adminSuspendedAt !== null,
+        deactivated: s.adminSuspendedAt !== null,
       })),
       counts: {
         buyerConversations: row._count.buyerConversations,

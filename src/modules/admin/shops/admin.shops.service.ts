@@ -26,8 +26,11 @@ function publicListRow(row: Awaited<ReturnType<typeof adminShopsRepo.list>>[numb
     location: row.location,
     isActive: row.isActive,
     status: statusOf(row),
-    adminSuspendedAt: row.adminSuspendedAt?.toISOString() ?? null,
-    adminSuspendedReason: row.adminSuspendedReason,
+    // Public API uses the UX action verb "deactivate" to match the status
+    // enum and the endpoint path; DB column stays admin_suspended_* for
+    // historical reasons.
+    deactivatedAt: row.adminSuspendedAt?.toISOString() ?? null,
+    deactivatedReason: row.adminSuspendedReason,
     createdAt: row.createdAt.toISOString(),
     owner: row.owner,
   };
@@ -62,9 +65,9 @@ export const adminShopsService = {
       isActive: row.isActive,
       showLegalName: row.showLegalName,
       status: statusOf(row),
-      adminSuspendedAt: row.adminSuspendedAt?.toISOString() ?? null,
-      adminSuspendedReason: row.adminSuspendedReason,
-      adminSuspendedById: row.adminSuspendedById,
+      deactivatedAt: row.adminSuspendedAt?.toISOString() ?? null,
+      deactivatedReason: row.adminSuspendedReason,
+      deactivatedById: row.adminSuspendedById,
       deletedAt: row.deletedAt?.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
