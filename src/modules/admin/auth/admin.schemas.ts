@@ -32,7 +32,16 @@ export const changePasswordSchema = z.object({
   newPassword: PASSWORD,
 });
 
+// Self-service backup-code regeneration. Requires BOTH current password
+// AND a fresh TOTP code — re-prove ownership before invalidating the
+// existing backup codes.
+export const regenerateBackupCodesSchema = z.object({
+  currentPassword: z.string().min(1).max(256),
+  totpCode: z.string().regex(/^\d{6}$/, "Must be 6 digits"),
+});
+
 export type LoginInput = z.infer<typeof loginSchema>;
 export type TwoFactorSetupVerifyInput = z.infer<typeof twoFactorSetupVerifySchema>;
 export type TwoFactorVerifyInput = z.infer<typeof twoFactorVerifySchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+export type RegenerateBackupCodesInput = z.infer<typeof regenerateBackupCodesSchema>;

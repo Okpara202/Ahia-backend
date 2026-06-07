@@ -20,6 +20,7 @@ export type AuditAction =
   | "promote_admin"
   | "demote_admin"
   | "reset_admin_2fa"
+  | "regenerate_backup_codes"
   | "change_admin_password";
 
 export type AuditTargetType =

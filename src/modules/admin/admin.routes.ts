@@ -51,6 +51,11 @@ router.post(
   requireAdmin(),
   adminAuthController.changePassword,
 );
+router.post(
+  "/auth/2fa/regenerate-backup-codes",
+  requireAdmin(),
+  adminAuthController.regenerateBackupCodes,
+);
 
 // ---- Disputes ----
 router.get("/disputes", requireAdmin(), adminDisputesController.list);

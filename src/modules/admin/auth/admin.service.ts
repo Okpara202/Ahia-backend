@@ -9,6 +9,7 @@ import { adminRepo } from "./admin.repo.js";
 import type {
   ChangePasswordInput,
   LoginInput,
+  RegenerateBackupCodesInput,
   TwoFactorSetupVerifyInput,
   TwoFactorVerifyInput,
 } from "./admin.schemas.js";
@@ -245,6 +246,52 @@ export const adminAuthService = {
     }
   },
 
+  // Self-service: regenerate the 10 backup codes for the signed-in admin.
+  // Requires current password + a fresh TOTP code to re-prove ownership
+  // before invalidating the existing codes. Existing codes are deleted in
+  // the replaceBackupCodes tx — no overlap window.
+  async regenerateBackupCodes(
+    adminId: string,
+    input: RegenerateBackupCodesInput,
+    ip?: string,
+    userAgent?: string,
+  ): Promise<string[]> {
+    const admin = await adminRepo.findById(adminId);
+    if (!admin) throw new AppError(404, "not_found", "Admin not found.");
+    if (!admin.totpEnabled || !admin.totpSecret) {
+      throw new AppError(
+        409,
+        "totp_not_enabled",
+        "Set up 2FA before regenerating backup codes.",
+      );
+    }
+    const passwordOk = await bcrypt.compare(input.currentPassword, admin.passwordHash);
+    if (!passwordOk) {
+      throw new AppError(
+        401,
+        "invalid_credentials",
+        "Current password is incorrect.",
+      );
+    }
+    if (!(await totp.verify(input.totpCode, admin.totpSecret))) {
+      throw new AppError(401, "invalid_totp", "Code didn't match. Try again.");
+    }
+    const plainCodes = generateBackupCodes();
+    const hashes = await Promise.all(
+      plainCodes.map((c) => bcrypt.hash(c, BCRYPT_ROUNDS)),
+    );
+    await adminRepo.replaceBackupCodes(adminId, hashes);
+    await writeAudit({
+      adminId,
+      action: "regenerate_backup_codes",
+      targetType: "admin",
+      targetId: adminId,
+      ip,
+      userAgent,
+    });
+    return plainCodes;
+  },
+
   async changePassword(
     adminId: string,
     input: ChangePasswordInput,
@@ -282,5 +329,12 @@ export const adminAuthService = {
       totpEnabled: admin.totpEnabled,
       status: admin.status,
     };
+  },
+
+  // /auth/me response — toPublic + backup-codes count so the Settings page
+  // can show "N codes remaining" without a separate request.
+  async meBody(admin: AdminUser) {
+    const backupCodesRemaining = await adminRepo.countRemainingBackupCodes(admin.id);
+    return { ...this.toPublic(admin), backupCodesRemaining };
   },
 };

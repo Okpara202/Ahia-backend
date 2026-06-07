@@ -6,6 +6,7 @@ import { adminAuthService } from "./admin.service.js";
 import {
   changePasswordSchema,
   loginSchema,
+  regenerateBackupCodesSchema,
   twoFactorSetupVerifySchema,
   twoFactorVerifySchema,
 } from "./admin.schemas.js";
@@ -113,7 +114,8 @@ export const adminAuthController = {
 
   async me(req: Request, res: Response) {
     if (!req.admin) throw new UnauthorizedError();
-    res.status(200).json({ admin: adminAuthService.toPublic(req.admin) });
+    const admin = await adminAuthService.meBody(req.admin);
+    res.status(200).json({ admin });
   },
 
   async changePassword(req: Request, res: Response) {
@@ -134,5 +136,19 @@ export const adminAuthController = {
     });
     setSessionCookie(res, session.id);
     res.status(200).json({ ok: true });
+  },
+
+  async regenerateBackupCodes(req: Request, res: Response) {
+    if (!req.admin) throw new UnauthorizedError();
+    const input = regenerateBackupCodesSchema.parse(req.body);
+    const backupCodes = await adminAuthService.regenerateBackupCodes(
+      req.admin.id,
+      input,
+      ipFromRequest(req),
+      uaFromRequest(req),
+    );
+    // Plain codes ONLY returned here — never again. Frontend must surface
+    // them to the user in a one-shot reveal screen with a copy button.
+    res.status(200).json({ backupCodes });
   },
 };
