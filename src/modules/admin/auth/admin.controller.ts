@@ -12,18 +12,32 @@ import {
 
 const SESSION_COOKIE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
+function adminCookieAttrs() {
+  const isProd = env.NODE_ENV === "production";
+  return {
+    httpOnly: true,
+    secure: isProd,
+    // SameSite=None is required because the admin app runs on a different
+    // origin than the API (localhost:3001 → onrender.com in dev, and a
+    // Vercel subdomain → onrender.com in staging). Lax cookies are NOT sent
+    // on those cross-site requests, which breaks every authed call after
+    // login. SameSite=None requires Secure, which is set in prod.
+    sameSite: isProd ? ("none" as const) : ("lax" as const),
+    path: "/",
+  };
+}
+
 function setSessionCookie(res: Response, sessionId: string) {
   res.cookie(env.ADMIN_COOKIE_NAME, sessionId, {
-    httpOnly: true,
-    secure: env.NODE_ENV === "production",
-    sameSite: env.NODE_ENV === "production" ? "lax" : "lax",
+    ...adminCookieAttrs(),
     maxAge: SESSION_COOKIE_MAX_AGE_MS,
-    path: "/",
   });
 }
 
 function clearSessionCookie(res: Response) {
-  res.clearCookie(env.ADMIN_COOKIE_NAME, { path: "/" });
+  // Clear MUST mirror the set attributes — browsers reject the clear
+  // otherwise and the cookie lingers.
+  res.clearCookie(env.ADMIN_COOKIE_NAME, adminCookieAttrs());
 }
 
 export const adminAuthController = {
