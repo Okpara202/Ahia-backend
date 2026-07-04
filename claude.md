@@ -716,3 +716,110 @@ When you start, before writing code:
 
 The frontend integration is a single file edit per service. See §1 — keep the function
 signatures, swap the body for an Axios call. The frontend types are the contract.
+
+---
+
+## 11. Pre-launch hardening checklist
+
+Captured 2026-06-06 after a "will the backend survive 1000 concurrent users" audit.
+These are the things that will surprise the team at launch if not addressed. Sorted
+by urgency — do top-down. If Claude is asked about scale, performance, or launch
+readiness, this section is the canonical reference (alongside the deeper memory note
+`project_prelaunch_hardening.md`).
+
+### 11.1 Launch BLOCKERS — fix before any real user touches prod
+
+1. **Paystack is in test mode.** Sellers cannot receive payouts. `PAYSTACK_SECRET_KEY`
+   still starts with `sk_test_`. Activate live mode on Paystack dashboard (requires
+   completed KYC: BVN, business doc, settlement bank), rotate the env var. See memory
+   `project_paystack_test_mode.md` for the diagnostic shortcut.
+2. **Resend not wired.** No payment receipts, no dispute notifications, no password
+   resets, no email verification. Integration is null-safe in code so dev is fine,
+   but every transactional email is silently skipped in prod until `RESEND_API_KEY`
+   is set.
+3. **Forgot password endpoint deferred.** Locked-out sellers have no self-service
+   recovery. Ship with Resend.
+
+### 11.2 90-minute pre-launch wins
+
+1. **Bump Prisma connection pool.** Append `?connection_limit=20&pool_timeout=20` to
+   `DATABASE_URL` in Render env. Default is ~5 connections; at ~50 concurrent
+   requests the rest queue and time out. No code change.
+2. **Upgrade Render from free to Starter (~$7/mo).** Free tier sleeps after
+   inactivity → 50-second cold start. Users will think the app is broken.
+3. **Rate-limit fire-and-forget endpoints.** `POST /discover/posts/:id/impression`,
+   `/click`, `/save` have no per-IP throttle today. A malicious user can inflate
+   any seller's counter by spamming. Add ~60/min/IP using existing middleware.
+
+### 11.3 First-week post-launch
+
+- **Batch N+1 queries** in `listMyPosts` (campaign lookup per post), `listMine`
+  stories (Redis lookup per story), inbox unread counts. Replace
+  `Promise.all(slice.map(async ...))` with `IN (...)` queries.
+- **Cloudinary destroy retry helper** — wrap fire-and-forget destroys with 3
+  attempts + exponential backoff. Saves a BullMQ dependency for now.
+- **Idempotency-Key header** on payment-adjacent POSTs so double-clicks during slow
+  network can't double-charge.
+
+### 11.4 BullMQ activation — when, not now
+
+**Plan locked in:** ship BullMQ when Resend is wired and we start sending real
+transactional emails. Cost note: BullMQ code is MIT-free; Redis is the cost.
+Plan ~$10-20/mo additional infra (Upstash paid plan or dedicated Render Redis).
+A 10K-commands/day free Upstash blows on the first day of notification fanout.
+
+Trigger conditions (activate when any is true):
+1. Resend wired and emails flowing (current plan)
+2. Any shop hits 500+ followers (notification fanout becomes slow inline)
+3. Multi-instance deploy on Render
+4. Paystack transfer failure rate > 5%
+
+When activated, migrate work to BullMQ in this order:
+1. Notification fanout (story/follow/discover_campaign_started)
+2. Resend transactional emails
+3. Paystack transfer retries (with exponential backoff)
+4. Move cron jobs (escrow auto-release, boost expiry, Paystack recovery) from
+   `setInterval` to BullMQ's scheduled-jobs feature
+
+### 11.5 Don't bother until 5-10K users
+
+- Postgres `ILIKE` → fulltext index for search
+- Inbox `listMine` cursor pagination
+- Notification table archive job
+- In-process cron jobs (fine until multi-instance)
+
+### 11.6 Don't bother until 50K+ users
+
+- Multi-instance Socket.io (Redis adapter is wired; just not multi-instanced yet)
+- Cloudinary direct browser upload (skip backend proxy)
+- Notification table sharding
+
+### 11.7 Ops gaps to plan for separately
+
+- **No automated tests.** Every regression ships silently. Manual frontend
+  smoke-testing is the only safety net today.
+- **No staging environment.** Every push goes straight to prod. Schema migrations
+  in particular are risky without a staging dry-run.
+- **No error tracking / alerting.** Render logs are visible but no PagerDuty /
+  Sentry / etc. Spikes in 500s would be missed without manually grepping.
+- **No analytics.** Mixpanel / PostHog. Can't measure funnel drop-off or feature
+  usage at launch.
+- **Verify Neon backup retention** (typically 7 days on free tier) and decide if
+  more is needed before going live.
+
+### 11.8 Frontend asks (only the frontend can fix)
+
+These are captured here so backend doesn't try to solve them server-side:
+
+1. Optimistic updates for impression/click/save/follow — don't wait for response.
+2. **NEVER auto-retry payment-related POSTs** on network error. Backend has no
+   idempotency-key support yet; auto-retry could double-charge.
+3. Debounce search queries and typing indicators (300ms client-side).
+4. Handle Socket.io `reconnect` event — re-fetch unread counts and conversation
+   state on reconnect (events can be dropped during the disconnect window).
+5. Skeleton + "still loading…" banner if any GET takes > 5s. Render free-tier
+   cold starts can be 50 seconds.
+6. Respect server pagination caps (`limit ≤ 50` on `/discover/posts/me` etc.).
+   Walk pages with cursor.
+7. Cache-then-revalidate on GETs to reduce backend load and improve perceived
+   speed.
